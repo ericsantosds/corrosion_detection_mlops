@@ -1,8 +1,8 @@
 # ==============================================================================
 # 🐳 MLOPS PRODUCTION DOCKERFILE - CORROSION DETECTION
 # ==============================================================================
-# Imagem base oficial da NVIDIA com CUDA 12.1 e Ubuntu 22.04 para suporte a GPU
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+# Imagem base oficial da NVIDIA com CUDA 13 e Ubuntu 22.04 para suporte a GPU
+FROM nvidia/cuda:13.0.0-runtime-ubuntu22.04
 
 # Define variáveis de ambiente para evitar interações no terminal durante o build
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -33,7 +33,7 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python \
     && ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # 2. Instala o gerenciador de alta performance 'uv' da Astral de forma global
-COPY --from=astral-sh/setup-uv:latest /uv /uvx /bin/
+RUN pip install --no-cache-dir uv
 
 # 3. Copia os arquivos de mapeamento de dependências travadas do projeto
 COPY pyproject.toml uv.lock ./

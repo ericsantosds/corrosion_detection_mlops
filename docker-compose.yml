@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 📹 API DE SERVING (FASTAPI + INFERÊNCIA DA IA)
   fastapi-serving:
