@@ -138,7 +138,7 @@ To bypass corporate tenant MFA and Azure AD OAuth2 restrictions, the system util
 
 ```bash
 # 1. Link the local DVC repository tracking configuration directly to the mapped corporate SharePoint mount point
-dvc remote add -f -d sharepoint_fieb "/mnt/c/Users/eric.santoss/Sistema FIEB/Soft Robots - IA - mlops_for_computervision"
+dvc remote add -f -d sharepoint_{your_enterprise} "/mnt/c/Users/username/{share point path to} - mlops_for_computervision"
 
 # 2. Re-compute immutable dataset hashes and generate clean MD5 checksum pointers
 dvc add data
