@@ -25,9 +25,10 @@ dependencies = [
     "evidently",
     "scikit-image",
     "pandas",
-    "apache-airflow",
-    "pendulum",
-    "pytest"
+    "apache-airflow>=3.0.0",
+    "sqlalchemy>=2.0.0,<2.1.0",
+    "pytest",
+    "apache-airflow-providers-fab>=1.5.3",
 ]
 
 # Configuração correta para o UV buscar o PyTorch CUDA 13.0
@@ -41,9 +42,7 @@ torch = { index = "pytorch-cuda" }
 torchvision = { index = "pytorch-cuda" }
 
 [tool.uv]
-required-environments = [
-    "sys_platform == 'win32' and platform_machine == 'AMD64'"
-]
+# Removida a restrição exclusiva de Windows para permitir rodar no seu ambiente Linux/WSL2
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

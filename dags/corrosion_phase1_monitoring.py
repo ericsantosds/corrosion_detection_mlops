@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import os
 import json
+from pathlib import Path
 import pendulum
 from airflow import DAG
 from airflow.utils.email import send_email_smtp 
@@ -8,11 +9,17 @@ from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import BranchPythonOperator
 from airflow.providers.smtp.operators.smtp import EmailOperator
 
-# LOCKS THE ABSOLUTE PATH OF THE REPOSITORY (Prevents Airflow scope errors)
-PROJECT_ROOT = "/home/eric/projects/corrosion_detection_mlops"
+# The DAG may be copied into Airflow's dags folder, so allow the repository
+# location to be configured independently of the DAG file's location.
+PROJECT_ROOT = os.environ.get(
+    "CORROSION_PROJECT_ROOT",
+    "/home/adm_ericsantos/projects/PA/corrosion_detection_mlops",
+)
+PROJECT_ROOT = str(Path(PROJECT_ROOT).expanduser().resolve())
+PYTHON_EXECUTABLE = os.path.join(PROJECT_ROOT, ".venv", "bin", "python")
 LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
-def gmail_fail_alert(context): 
+def gmail_fail_alert(context):
     ti = context["task_instance"] 
     dag_id = ti.dag_id 
     task_id = ti.task_id 
@@ -93,8 +100,8 @@ with DAG(
     # 1. Calculates Data Drift using Evidently AI
     task_run_observability = BashOperator(
         task_id='run_observability_monitor',
-        bash_command="/home/eric/projects/corrosion_detection_mlops/.venv/bin/python -m src.observability.monitor",
-        env={"PYTHONPATH": "/home/eric/projects/corrosion_detection_mlops"},
+        bash_command=f"{PYTHON_EXECUTABLE} -m src.observability.monitor",
+        env={"PYTHONPATH": PROJECT_ROOT},
         cwd=PROJECT_ROOT
     )
 
@@ -113,8 +120,8 @@ with DAG(
     # Path B: Creates structured pseudo-annotation JSON files inside the review_data/ folder
     task_generate_pseudo_labels = BashOperator(
         task_id='generate_pseudo_labels',
-        bash_command="/home/eric/projects/corrosion_detection_mlops/.venv/bin/python -m src.data_automation.send_to_review",
-        env={"PYTHONPATH": "/home/eric/projects/corrosion_detection_mlops"},
+        bash_command=f"{PYTHON_EXECUTABLE} -m src.data_automation.send_to_review",
+        env={"PYTHONPATH": PROJECT_ROOT},
         cwd=PROJECT_ROOT
     )
 
@@ -124,7 +131,7 @@ with DAG(
         to='eric.oliveira.pro@gmail.com',
         subject='🚨 MLOps Alert: Data Drift Detected in Corrosion Monitor',
         conn_id='gmail_connection',
-        files=["{% raw %}/home/eric/projects/corrosion_detection_mlops/runs/observability/drift_dashboard.html{% endraw %}"],
+        files=[os.path.join(PROJECT_ROOT, "runs", "observability", "drift_dashboard.html")],
         html_content="""
             <h3>MLOps Observability Alert</h3>
             <p><b>Evidently AI</b> has detected a critical statistical drift in the data collected by the API.</p>
