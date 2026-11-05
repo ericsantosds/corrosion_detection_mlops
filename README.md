@@ -59,6 +59,16 @@ Before starting the triggers, migrate the database schema to generate all mandat
 airflow db migrate
 ```
 
+```bash
+airflow users create \
+    --username admin \
+    --firstname MyName \
+    --lastname MyName \
+    --role Admin \
+    --email your@gmail.com \
+    --password admin
+```
+
 ### Step 3: Initialize Web UI and Motors (Optimized 2-Terminal Architecture)
 Airflow 3.0+ strictly isolates the DAG reading worker loop into a decoupled processor. Instead of opening 4 messy screens, run the ecosystem using only **two parallel terminals** with the virtual environment active (`source .venv/bin/activate`):
 
