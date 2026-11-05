@@ -12,20 +12,11 @@ To guarantee total compatibility between Apache Airflow components, graphical to
 # 1. Install required Linux system graphics and X11 dependencies for WSL2 UI rendering
 sudo apt update && sudo apt install -y libxcb-xinerama0 libqt5gui5 libgles2-mesa-dev
 
-# 2. Ensure the working context is in the project root directory and create an isolated venv in Python 3.11
-uv venv --clear --python 3.11
+# 2. Ensure the working context is in the project root directory and create an isolated venv in Python 3.11 based pyproject.toml
+uv sync
 
 # 3. Activate the created virtual environment
 source .venv/bin/activate
-
-# 4. Update core ecosystem packages and install project dependencies
-# Note: opencv-python-headless prevents Qt library distribution conflicts with Labelme
-uv pip install -U apache-airflow
-uv pip install --upgrade werkzeug
-uv pip install opencv-python-headless labelme
-
-# 5. Install mandatory Airflow 3.0+ providers for Core and SMTP/Email operations
-uv pip install apache-airflow-providers-standard apache-airflow-providers-smtp
 ```
 
 ---
