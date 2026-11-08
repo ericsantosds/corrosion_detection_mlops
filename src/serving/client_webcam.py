@@ -57,10 +57,7 @@ class WebcamServingClient:
             self.is_sending = False
 
     def start_monitoring(self):
-        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("❌ Error: Could not access the webcam.")
             return
