@@ -141,6 +141,8 @@ with DAG(
             <p><i>Automated message triggered by Apache Airflow 3.0+</i></p>
         """
     )
+    # Keep the HTML attachment as a file path; EmailOperator otherwise loads it as a Jinja template.
+    task_send_email.template_ext = ()
 
     # Phase 1 Graph Dependencies
     task_run_observability >> task_verify_drift
