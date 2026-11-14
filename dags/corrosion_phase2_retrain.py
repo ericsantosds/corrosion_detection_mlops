@@ -7,10 +7,25 @@ from airflow import DAG
 from airflow.utils.email import send_email_smtp
 from airflow.providers.standard.operators.bash import BashOperator
 
-PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
-# Use the interpreter running the Airflow worker; the DAG may be loaded from a
-# separate Airflow dags directory where PROJECT_ROOT/.venv does not exist.
 PYTHON_EXECUTABLE = sys.executable
+
+
+def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
+    candidates = (dag_file.resolve().parent.parent, *python_executable.absolute().parents)
+    for candidate in candidates:
+        if (candidate / "src" / "data_automation" / "parse_review_to_train.py").is_file():
+            return candidate
+    raise RuntimeError(
+        "Could not locate the project root; set CORROSION_PROJECT_ROOT to the checkout path."
+    )
+
+
+configured_project_root = os.getenv("CORROSION_PROJECT_ROOT")
+if configured_project_root:
+    PROJECT_ROOT = str(Path(configured_project_root).expanduser().resolve())
+else:
+    PROJECT_ROOT = str(_find_project_root(Path(__file__), Path(PYTHON_EXECUTABLE)))
+
 LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
 def gmail_fail_alert(context): 

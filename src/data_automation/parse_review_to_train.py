@@ -33,8 +33,8 @@ def trigger_airflow_phase2():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            # Reinforces the environment path so Airflow knows where its home config sits
-            env={**os.environ, "AIRFLOW_HOME": "/home/eric/airflow"}
+            # Preserve the caller's Airflow configuration (including AIRFLOW_HOME).
+            env=os.environ.copy()
         )
 
         print("🚀 [MLOps] SUCCESS! Airflow CLI output:")

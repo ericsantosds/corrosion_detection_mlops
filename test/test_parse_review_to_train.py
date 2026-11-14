@@ -59,8 +59,11 @@ def test_parse_and_conversion_success(tmp_path):
 
 
 @patch("subprocess.run")
-def test_trigger_airflow_cli(mock_run):
+def test_trigger_airflow_cli(mock_run, monkeypatch, tmp_path):
     """Garante que a CLI local do Airflow é chamada com os argumentos corretos"""
+    airflow_home = str(tmp_path / "airflow")
+    monkeypatch.setenv("AIRFLOW_HOME", airflow_home)
+
     trigger_airflow_phase2()
     
     # Verifica se o subprocess chamou os binários da CLI de forma correta
@@ -69,3 +72,4 @@ def test_trigger_airflow_cli(mock_run):
     assert "dags" in args_called
     assert "trigger" in args_called
     assert "corrosion_phase2_retrain" in args_called
+    assert mock_run.call_args.kwargs["env"]["AIRFLOW_HOME"] == airflow_home

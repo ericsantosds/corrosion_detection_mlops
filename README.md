@@ -52,6 +52,7 @@ Ensure your `airflow.cfg` has the `dags_folder` pointing exactly to your absolut
 mkdir -p ~/airflow/dags
 cp dags/*.py ~/airflow/dags/
 ```
+When Airflow loads the Phase 2 DAG from a separate `AIRFLOW_HOME`, it locates the checkout from the Python environment path. If that cannot identify the checkout, set `CORROSION_PROJECT_ROOT` in the Airflow environment to the repository path.
 
 ### Step 2: Initialize the Metadata Database Backend
 Before starting the triggers, migrate the database schema to generate all mandatory internal metadata tables (such as the `job` table):
@@ -126,7 +127,7 @@ To streamline the human annotation workflow, a unified execution script is used:
 ```bash
 ./run_curation.sh
 ```
-*💥 MLOps MAGIC:* The execution of `./run_curation.sh` launches the Labelme UI over the native XCB platform. Once the operator updates the boxes, saves, and closes the window, the `parse_review_to_train.py` segment automatically triggers. It translates JSON files into normalized YOLO `.txt` files, incorporates them into the local `data/train` split, purges staging queues, and **invokes the local Airflow CLI wrapper (`airflow dags trigger`)**, instantly initiating the Phase 2 training pipeline without needing network HTTP credentials or generating authentication faults.
+*💥 MLOps MAGIC:* The execution of `./run_curation.sh` launches the Labelme UI over the native XCB platform. Once the operator updates the boxes, saves, and closes the window, the `parse_review_to_train.py` segment automatically triggers. It translates JSON files into normalized YOLO `.txt` files, incorporates them into the local `data/images/train` split, purges staging queues, and **invokes the local Airflow CLI wrapper (`airflow dags trigger`)**, instantly initiating the Phase 2 training pipeline without needing network HTTP credentials or generating authentication faults. The CLI inherits the caller's environment, including `AIRFLOW_HOME`, so configure it for the same Airflow instance that runs the DAG.
 
 ---
 
