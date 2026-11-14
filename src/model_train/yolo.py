@@ -1,3 +1,5 @@
+"""Train the corrosion detection YOLO model."""
+
 import os
 import sys
 from ultralytics import YOLO, settings
@@ -11,6 +13,7 @@ if PROJECT_ROOT not in sys.path:
 
 
 def main():
+    """Train a model using the project configuration."""
     # 2. Configures the local URI for the MLflow SQLite database
     os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}"
     os.environ["MLFLOW_EXPERIMENT_NAME"] = "Corrosion_Detection_YOLO"

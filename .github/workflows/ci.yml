@@ -7,6 +7,33 @@ on:
     branches: [ main, master ]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install uv execution engine
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: "latest"
+        enable-cache: true
+
+    - name: Install Python linters
+      run: uv pip install --system pycodestyle pydocstyle
+
+    - name: Run PEP 8 checks
+      run: pycodestyle --max-line-length=120 src dags helper test
+
+    - name: Run PEP 257 checks
+      run: pydocstyle --ignore=D203 src dags helper
+
   run-tests:
     runs-on: ubuntu-latest
 

@@ -1,3 +1,5 @@
+"""Convert reviewed Labelme annotations to YOLO training data."""
+
 import os
 import json
 import shutil
@@ -15,7 +17,7 @@ CLASS_MAPPING = {"corrosion": 0}
 
 
 def trigger_airflow_phase2():
-    """Triggers the retraining pipeline directly via Airflow CLI, bypassing HTTP 401 errors"""
+    """Trigger phase-two retraining through the Airflow CLI."""
     # Locates the exact path of the airflow binary inside your active virtual environment
     venv_bin_dir = os.path.dirname(sys.executable)
     airflow_binary = os.path.join(venv_bin_dir, "airflow")
@@ -24,8 +26,9 @@ def trigger_airflow_phase2():
     command = [airflow_binary, "dags", "trigger", "corrosion_phase2_retrain"]
 
     try:
-        print(f"📡 [CLI Trigger] Invoking local Airflow command: {' '.join(command)}")
-        
+        print(
+            f"📡 [CLI Trigger] Invoking local Airflow command: {' '.join(command)}")
+
         # Executes the terminal command securely from within Python
         result = subprocess.run(
             command,
@@ -41,17 +44,20 @@ def trigger_airflow_phase2():
         print(result.stdout.strip())
 
     except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to trigger DAG via Airflow CLI. Exit Code: {e.returncode}")
+        print(
+            f"❌ Failed to trigger DAG via Airflow CLI. Exit Code: {e.returncode}")
         print(f"📝 Error Details: {e.stderr.strip()}")
     except Exception as e:
         print(f"❌ Unexpected system failure when launching local trigger: {e}")
 
 
 def main():
+    """Process reviewed annotations and trigger retraining when needed."""
     print("🔄 Starting data conversion from Labelme to YOLO format...")
 
     if not os.path.exists(REVIEW_DIR) or not os.listdir(REVIEW_DIR):
-        print("⚠️ 'review_data' folder is empty or non-existent. No curation data to process.")
+        print(
+            "⚠️ 'review_data' folder is empty or non-existent. No curation data to process.")
         return
 
     # Ensures that destination directories exist
@@ -104,7 +110,8 @@ def main():
             os.remove(json_path)
             processed_count += 1
 
-    print(f"✅ Curation completed! {processed_count} images converted and merged into the training dataset.")
+    print(
+        f"✅ Curation completed! {processed_count} images converted and merged into the training dataset.")
 
     # TRIGGER DISPATCH: Only runs after all files above are completely written to disk
     if processed_count > 0:

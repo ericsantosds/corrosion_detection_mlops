@@ -1,10 +1,12 @@
+"""Airflow DAG for monitoring data drift and starting review workflows."""
+
 from datetime import datetime, timedelta
 import os
 import json
 from pathlib import Path
 import pendulum
 from airflow import DAG
-from airflow.utils.email import send_email_smtp 
+from airflow.utils.email import send_email_smtp
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import BranchPythonOperator
 from airflow.providers.smtp.operators.smtp import EmailOperator
@@ -19,36 +21,40 @@ PROJECT_ROOT = str(Path(PROJECT_ROOT).expanduser().resolve())
 PYTHON_EXECUTABLE = os.path.join(PROJECT_ROOT, ".venv", "bin", "python")
 LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
-def gmail_fail_alert(context):
-    ti = context["task_instance"] 
-    dag_id = ti.dag_id 
-    task_id = ti.task_id 
-    run_id = getattr(ti, "run_id", "unknown") 
-    execution_time = getattr(ti, "start_date", "unknown") 
-    error = str(context.get("exception", "Nenhuma exceção capturada")) 
 
-    base_url = os.getenv("AIRFLOW__WEBSERVER__BASE_URL", "http://localhost:8080") 
+def gmail_fail_alert(context):
+    """Send an email alert when an Airflow task fails."""
+    ti = context["task_instance"]
+    dag_id = ti.dag_id
+    task_id = ti.task_id
+    run_id = getattr(ti, "run_id", "unknown")
+    execution_time = getattr(ti, "start_date", "unknown")
+    error = str(context.get("exception", "Nenhuma exceção capturada"))
+
+    base_url = os.getenv("AIRFLOW__WEBSERVER__BASE_URL",
+                         "http://localhost:8080")
     log_url = f"{base_url}/dags/{dag_id}/runs/{run_id}"
 
     subject = f"🚨 Tarefa do Airflow Falha: {dag_id}. {task_id}"
-    html_content = f""" 
-    <h3>🚨 Tarefa do Airflow falhou!</h3> 
-    <ul> 
-      <li><b>DAG:</b> {dag_id}</li> 
-      <li><b>Tarefa:</b> {task_id}</li> 
-      <li><b>ID da Execução:</b> {run_id}</li> 
-      <li><b>Tempo de Execução:</b> {execution_time}</li> 
-      <li><b>Erro:</b> {error}</li> 
-    </ul> 
+    html_content = f"""
+    <h3>🚨 Tarefa do Airflow falhou!</h3>
+    <ul>
+      <li><b>DAG:</b> {dag_id}</li>
+      <li><b>Tarefa:</b> {task_id}</li>
+      <li><b>ID da Execução:</b> {run_id}</li>
+      <li><b>Tempo de Execução:</b> {execution_time}</li>
+      <li><b>Erro:</b> {error}</li>
+    </ul>
     <p><a href="{log_url}">🔗 Exibir Logs da Falha no Airflow</a></p>
     """
 
-    send_email_smtp( 
-        to="eric.oliveira.pro@gmail.com", 
-        subject=subject, 
-        html_content=html_content, 
+    send_email_smtp(
+        to="eric.oliveira.pro@gmail.com",
+        subject=subject,
+        html_content=html_content,
         conn_id="gmail_connection",
     )
+
 
 default_args = {
     'owner': 'ai_team',
@@ -59,22 +65,27 @@ default_args = {
     'on_failure_callback': gmail_fail_alert,
 }
 
+
 def check_drift_and_decide():
-    json_path = os.path.join(PROJECT_ROOT, "runs", "observability", "drift_report.json")
+    """Choose the next task based on the latest drift report."""
+    json_path = os.path.join(PROJECT_ROOT, "runs",
+                             "observability", "drift_report.json")
     print(f"🔍 [Airflow] Looking for report at: {json_path}")
 
     if not os.path.exists(json_path):
-        print(f"⚠️ Report {json_path} not found. Aborting and stopping pipeline.")
+        print(
+            f"⚠️ Report {json_path} not found. Aborting and stopping pipeline.")
         return 'stop_pipeline'
 
     with open(json_path, 'r') as f:
         report_data = json.load(f)
 
     metrics_root = report_data.get("metrics", {})
-    
+
     dataset_drifted = metrics_root.get("dataset_drift", False)
-    if not isinstance(dataset_drifted, bool): 
-        dataset_drifted = metrics_root.get("dataset_drift", {}).get("value", {}).get("dataset_drift", False)
+    if not isinstance(dataset_drifted, bool):
+        dataset_drifted = metrics_root.get("dataset_drift", {}).get(
+            "value", {}).get("dataset_drift", False)
 
     drift_share = metrics_root.get("share_of_drifted_columns", 0.0)
 
@@ -88,11 +99,12 @@ def check_drift_and_decide():
         print("✅ STABLE: Data is under control. Current model kept in serving.")
         return 'stop_pipeline'
 
+
 with DAG(
     'corrosion_phase1_monitoring',
     default_args=default_args,
     description='Phase 1 MLOps: Runs Observability and prepares data for Labelme if Drift is present',
-    schedule='0 8 * * *',  
+    schedule='0 8 * * *',
     catchup=False,
     tags=['mlops', 'observability', 'corrosion']
 ) as dag:
@@ -131,12 +143,16 @@ with DAG(
         to='eric.oliveira.pro@gmail.com',
         subject='🚨 MLOps Alert: Data Drift Detected in Corrosion Monitor',
         conn_id='gmail_connection',
-        files=[os.path.join(PROJECT_ROOT, "runs", "observability", "drift_dashboard.html")],
+        files=[os.path.join(PROJECT_ROOT, "runs",
+                            "observability", "drift_dashboard.html")],
         html_content="""
             <h3>MLOps Observability Alert</h3>
-            <p><b>Evidently AI</b> has detected a critical statistical drift in the data collected by the API.</p>
-            <p>The Active Learning pipeline has been triggered, and the frames are already awaiting curation inside the <i>review_data/</i> folder.</p>
-            <p><b> Fischer Note:</b> The complete statistical dashboard has been attached to this email for deep analysis.</p>
+            <p><b>Evidently AI</b> has detected a critical statistical drift in
+            the data collected by the API.</p>
+            <p>The Active Learning pipeline has been triggered, and the frames
+            are already awaiting curation inside the <i>review_data/</i> folder.</p>
+            <p><b> Fischer Note:</b> The complete statistical dashboard has
+            been attached to this email for deep analysis.</p>
             <br>
             <p><i>Automated message triggered by Apache Airflow 3.0+</i></p>
         """
@@ -146,4 +162,5 @@ with DAG(
 
     # Phase 1 Graph Dependencies
     task_run_observability >> task_verify_drift
-    task_verify_drift >> [task_stop_pipeline, task_generate_pseudo_labels, task_send_email]
+    task_verify_drift >> [task_stop_pipeline,
+                          task_generate_pseudo_labels, task_send_email]

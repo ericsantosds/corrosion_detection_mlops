@@ -1,3 +1,5 @@
+"""Webcam client for sending frames to the corrosion detection API."""
+
 import os
 import time
 from datetime import datetime
@@ -10,6 +12,7 @@ class WebcamServingClient:
     """Class responsible for managing webcam frame capture and drawing Bounding Boxes in real time."""
 
     def __init__(self, api_url: str, check_interval: float = 0.5):
+        """Initialize the API client and webcam processing state."""
         self.api_url = api_url
         self.check_interval = check_interval
 
@@ -47,7 +50,9 @@ class WebcamServingClient:
                     # ALWAYS saves the raw/clean image in online_data for Active Learning
                     cv2.imwrite(filepath, frame)
                     print(
-                        f"📸 [Active Learning] Corrosion detected! Saved to: online_data/{filename} ({data['count']} targets)")
+                        f"📸 [Active Learning] Corrosion detected! Saved to: "
+                        f"online_data/{filename} ({data['count']} targets)"
+                    )
             else:
                 self.current_detections = []
         except Exception as e:
@@ -57,6 +62,7 @@ class WebcamServingClient:
             self.is_sending = False
 
     def start_monitoring(self):
+        """Capture webcam frames and display API detections in real time."""
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("❌ Error: Could not access the webcam.")
@@ -116,6 +122,7 @@ class WebcamServingClient:
 
 
 def main():
+    """Start the webcam client."""
     # Correct URL pointing to your local FastAPI endpoint
     API_URL = "http://127.0.0.1:8000/predict"
 

@@ -1,3 +1,5 @@
+"""Monitor image data for feature drift."""
+
 import os
 import json
 import numpy as np
@@ -8,7 +10,8 @@ from evidently import Report
 from evidently.presets import DataDriftPreset
 
 # 1. Absolute paths definition based on the project root
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+PROJECT_ROOT = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", ".."))
 REFERENCE_DIR = os.path.join(PROJECT_ROOT, "data", "images", "train")
 PRODUCTION_DIR = os.path.join(PROJECT_ROOT, "online_data")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "runs", "observability")
@@ -17,7 +20,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def extract_image_features(image_dir: str) -> pd.DataFrame:
-    """Scans an image directory and extracts physical/structural properties."""
+    """Scan an image directory and extract physical and structural properties."""
     features_list = []
     valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
 
@@ -25,7 +28,8 @@ def extract_image_features(image_dir: str) -> pd.DataFrame:
         print(f"⚠️ Folder not found: {image_dir}")
         return pd.DataFrame()
 
-    files = [f for f in os.listdir(image_dir) if f.lower().endswith(valid_extensions)]
+    files = [f for f in os.listdir(
+        image_dir) if f.lower().endswith(valid_extensions)]
 
     for file in files:
         img_path = os.path.join(image_dir, file)
@@ -45,7 +49,8 @@ def extract_image_features(image_dir: str) -> pd.DataFrame:
         hue_mean = float(np.mean(hsv[:, :, 0]))
 
         # 2. Contrast and Texture Extraction using GLCM (Gray-Level Co-occurrence Matrix)
-        glcm = graycomatrix(gray, distances=[1], angles=[0], levels=256, symmetric=True, normed=True)
+        glcm = graycomatrix(gray, distances=[1], angles=[
+                            0], levels=256, symmetric=True, normed=True)
         contrast = float(graycoprops(glcm, 'contrast')[0, 0])
         homogeneity = float(graycoprops(glcm, 'homogeneity')[0, 0])
 
@@ -63,6 +68,7 @@ def extract_image_features(image_dir: str) -> pd.DataFrame:
 
 
 def main():
+    """Extract image features and generate a data drift report."""
     print("📊 [Evidently AI] Starting image metadata extraction...")
 
     # Extracts features from training images (Stable Reference Baseline)

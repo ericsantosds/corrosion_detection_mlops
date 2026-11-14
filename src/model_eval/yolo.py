@@ -1,3 +1,5 @@
+"""Evaluate and register the corrosion detection YOLO model."""
+
 from ultralytics import YOLO, settings
 import os
 import sys
@@ -19,6 +21,7 @@ if PROJECT_ROOT not in sys.path:
 
 
 def main():
+    """Evaluate the latest model and promote it when it meets quality gates."""
     # Database configuration at the project root
     os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}"
     os.environ["MLFLOW_EXPERIMENT_NAME"] = "Corrosion_Detection_YOLO"
@@ -28,7 +31,7 @@ def main():
     # 1. Loads the dataset path (only data_path continues to come from config/yaml)
     config = load_config(os.path.join(PROJECT_ROOT, 'data', 'data.yaml'))
     data_path = config['path']
-    
+
     # 2. AUTOMATIC AND DYNAMIC LOCATION OF THE LATEST TRAINED MODEL
     base_detect_dir = os.path.join(PROJECT_ROOT, "runs", "detect")
 
@@ -57,7 +60,8 @@ def main():
             f"❌ The weights file 'best.pt' was not found at: {model_path}")
 
     print(f"📦 [Automation] Latest training located: {latest_train_folder}")
-    print(f"🎯 [Automation] Loading weights for test set evaluation: {model_path}")
+    print(
+        f"🎯 [Automation] Loading weights for test set evaluation: {model_path}")
 
     # Loads the trained model dynamically
     model = YOLO(model_path)
@@ -96,52 +100,69 @@ def main():
         mlflow.log_artifact(model_path, artifact_path="yolo_weights")
 
         # Officially registers this model in the MLflow Model Registry
-        local_artifact_uri = f"file://{os.path.abspath(os.path.join(run.info.artifact_uri, 'yolo_weights', model_filename))}"
+        local_artifact_uri = (
+            f"file://{os.path.abspath(os.path.join(run.info.artifact_uri, 'yolo_weights', model_filename))}"
+        )
         model_details = mlflow.register_model(
             local_artifact_uri, "Corrosion_Detection_YOLO_Model")
 
         # ---- MULTI-METRIC BUSINESS LOGIC (CHAMPION VS CHALLENGER) ----
         client = MlflowClient()
         model_name = "Corrosion_Detection_YOLO_Model"
-        
-        business_cfg = load_config(os.path.join(PROJECT_ROOT, 'business_args.yaml'))
+
+        business_cfg = load_config(os.path.join(
+            PROJECT_ROOT, 'business_args.yaml'))
         MIN_MAP50 = float(business_cfg['MIN_MAP50'])
         MIN_RECALL = float(business_cfg['MIN_RECALL'])
 
         print("\n--- BUSINESS RULES VALIDATION ---")
-        print(f"Obtained Metrics -> mAP50: {current_mAP50:.4f} | Recall: {current_recall:.4f}")
+        print(
+            f"Obtained Metrics -> mAP50: {current_mAP50:.4f} | Recall: {current_recall:.4f}")
 
         # 1. Check against baseline absolute thresholds
         if current_mAP50 < MIN_MAP50 or current_recall < MIN_RECALL:
             print("❌ REJECTED: Model did not meet the minimum business requirements.")
             sys.exit(0)
-            
+
         print("✅ Passed baseline requirements. Checking tournament against current Champion...")
 
         # 2. Modern secure checkout using the MLflow Aliases system
         try:
             # Queries the registry for the registered version currently carrying the 'champion' tag
-            champion_version = client.get_model_version_by_alias(model_name, "champion")
-            
+            champion_version = client.get_model_version_by_alias(
+                model_name, "champion")
+
             if champion_version and champion_version.run_id:
                 champion_run = client.get_run(champion_version.run_id)
-                champion_mAP50 = float(champion_run.data.metrics.get("metrics_mAP50", 0.0))
-                print(f"👑 Active Champion found! Version: {champion_version.version} | Champion mAP50: {champion_mAP50:.4f}")
-                
+                champion_mAP50 = float(
+                    champion_run.data.metrics.get("metrics_mAP50", 0.0))
+                print(
+                    f"👑 Active Champion found! Version: "
+                    f"{champion_version.version} | Champion mAP50: "
+                    f"{champion_mAP50:.4f}"
+                )
+
                 # Tournament condition: challenger must strictly outperform the champion
                 if current_mAP50 > champion_mAP50:
-                    print("🚀 CHALLENGER WINS! Reassigning 'champion' alias to the new model version.")
-                    client.set_registered_model_alias(model_name, "champion", model_details.version)
+                    print(
+                        "🚀 CHALLENGER WINS! Reassigning 'champion' alias to the new model version.")
+                    client.set_registered_model_alias(
+                        model_name, "champion", model_details.version)
                 else:
-                    print("📉 Challenger did not out-perform the current Champion. Keeping active model.")
+                    print(
+                        "📉 Challenger did not out-perform the current Champion. Keeping active model.")
             else:
-                print("✨ No active Champion found with valid Run ID. Promoting current model to first Champion!")
-                client.set_registered_model_alias(model_name, "champion", model_details.version)
-                
+                print(
+                    "✨ No active Champion found with valid Run ID. Promoting current model to first Champion!")
+                client.set_registered_model_alias(
+                    model_name, "champion", model_details.version)
+
         except Exception:
             # Fallback triggered when the database is fresh and the 'champion' alias does not exist yet
-            print("✨ No active Champion found in database. Promoting current model to first Champion!")
-            client.set_registered_model_alias(model_name, "champion", model_details.version)
+            print(
+                "✨ No active Champion found in database. Promoting current model to first Champion!")
+            client.set_registered_model_alias(
+                model_name, "champion", model_details.version)
 
         # ---- ADDITIONAL METADATA ATTRIBUTION (TAGS) ----
         client.set_registered_model_tag(

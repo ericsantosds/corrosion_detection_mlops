@@ -1,16 +1,21 @@
+"""Merge pseudo-labeled data into the training dataset."""
+
 import os
 import glob
 import shutil
 import sys
 
 # Definições estáticas permitidas no escopo global
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))
 BASE_DETECT_DIR = os.path.join(PROJECT_ROOT, "runs", "detect")
 ONLINE_DATA_DIR = os.path.join(PROJECT_ROOT, "online_data")
 TRAIN_IMAGES_DIR = os.path.join(PROJECT_ROOT, "data", "images", "train")
 TRAIN_LABELS_DIR = os.path.join(PROJECT_ROOT, "data", "labels", "train")
 
+
 def merge_datasets():
+    """Copy generated labels and their images into training data."""
     print("Starting the merging process of the new pseudo-labeled data...")
 
     # 1. LOCALIZAÇÃO DINÂMICA PROTEGIDA (Roda apenas quando a função é chamada)
@@ -18,7 +23,7 @@ def merge_datasets():
 
     if not predict_folders:
         print(f"❌ No prediction folder found at: {BASE_DETECT_DIR}")
-        return # <-- Retorno limpo em vez de sys.exit() para não derrubar o pytest
+        return  # <-- Retorno limpo em vez de sys.exit() para não derrubar o pytest
 
     latest_predict_dir = max(predict_folders, key=os.path.getmtime)
     PREDICT_LABELS_DIR = os.path.join(latest_predict_dir, "labels")
@@ -64,8 +69,10 @@ def merge_datasets():
         if residual_file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp')):
             os.remove(os.path.join(ONLINE_DATA_DIR, residual_file))
 
-    print(f"✅ Success! {copied_counter} new images and labels merged into the official training dataset.")
+    print(
+        f"✅ Success! {copied_counter} new images and labels merged into the official training dataset.")
     print("🧹 'online_data' folder cleaned and ready to receive new frames.")
+
 
 if __name__ == "__main__":
     merge_datasets()

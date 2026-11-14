@@ -1,3 +1,5 @@
+"""FastAPI service for corrosion detection inference."""
+
 import os
 import re
 from contextlib import asynccontextmanager
@@ -51,7 +53,7 @@ def load_champion_model() -> YOLO:
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
-    """Manages the application lifecycle (Startup and Shutdown), storing the state cleanly."""
+    """Manage model loading and cleanup during the application lifecycle."""
     try:
         # Stores the model instance inside the controlled FastAPI state
         fastapi_app.state.model = load_champion_model()
@@ -72,6 +74,7 @@ app = FastAPI(
 
 @app.post("/predict", summary="Real-time inference for corrosion detection")
 async def predict(request: Request, file: UploadFile = File(...)):
+    """Run object detection on an uploaded image."""
     # Safely retrieves the model from the current request state
     model: YOLO = request.app.state.model
     if model is None:
@@ -128,7 +131,7 @@ async def predict(request: Request, file: UploadFile = File(...)):
 
 @app.post("/reload", summary="Updates the production model without downing the API")
 def reload_model(request: Request):
-    """Administrative endpoint to reload the current champion in a thread-safe manner"""
+    """Reload the current champion model in a thread-safe manner."""
     try:
         # Replaces the old instance in the application state with the newly promoted version
         request.app.state.model = load_champion_model()

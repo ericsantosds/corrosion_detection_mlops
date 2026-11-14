@@ -1,3 +1,5 @@
+"""Airflow DAG for curating data, retraining, and deploying the model."""
+
 from datetime import datetime, timedelta
 import os
 from pathlib import Path
@@ -11,7 +13,8 @@ PYTHON_EXECUTABLE = sys.executable
 
 
 def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
-    candidates = (dag_file.resolve().parent.parent, *python_executable.absolute().parents)
+    candidates = (dag_file.resolve().parent.parent, *
+                  python_executable.absolute().parents)
     for candidate in candidates:
         if (candidate / "src" / "data_automation" / "parse_review_to_train.py").is_file():
             return candidate
@@ -24,40 +27,45 @@ configured_project_root = os.getenv("CORROSION_PROJECT_ROOT")
 if configured_project_root:
     PROJECT_ROOT = str(Path(configured_project_root).expanduser().resolve())
 else:
-    PROJECT_ROOT = str(_find_project_root(Path(__file__), Path(PYTHON_EXECUTABLE)))
+    PROJECT_ROOT = str(_find_project_root(
+        Path(__file__), Path(PYTHON_EXECUTABLE)))
 
 LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
-def gmail_fail_alert(context): 
-    ti = context["task_instance"] 
-    dag_id = ti.dag_id
-    task_id = ti.task_id 
-    run_id = getattr(ti, "run_id", "unknown") 
-    execution_time = getattr(ti, "start_date", "unknown") 
-    error = str(context.get("exception", "Nenhuma exceção capturada")) 
 
-    base_url = os.getenv("AIRFLOW__WEBSERVER__BASE_URL", "http://localhost:8080") 
+def gmail_fail_alert(context):
+    """Send an email alert when an Airflow task fails."""
+    ti = context["task_instance"]
+    dag_id = ti.dag_id
+    task_id = ti.task_id
+    run_id = getattr(ti, "run_id", "unknown")
+    execution_time = getattr(ti, "start_date", "unknown")
+    error = str(context.get("exception", "Nenhuma exceção capturada"))
+
+    base_url = os.getenv("AIRFLOW__WEBSERVER__BASE_URL",
+                         "http://localhost:8080")
     log_url = f"{base_url}/dags/{dag_id}/runs/{run_id}"
 
     subject = f"🚨 Tarefa do Airflow Falha: {dag_id}. {task_id}"
-    html_content = f""" 
-    <h3>🚨 Fall on Airflow Task!</h3> 
-    <ul> 
-      <li><b>DAG:</b> {dag_id}</li> 
-      <li><b>Task:</b> {task_id}</li> 
-      <li><b>ID of execution:</b> {run_id}</li> 
-      <li><b>Tempo of execution:</b> {execution_time}</li> 
+    html_content = f"""
+    <h3>🚨 Fall on Airflow Task!</h3>
+    <ul>
+      <li><b>DAG:</b> {dag_id}</li>
+      <li><b>Task:</b> {task_id}</li>
+      <li><b>ID of execution:</b> {run_id}</li>
+      <li><b>Tempo of execution:</b> {execution_time}</li>
       <li><b>Error:</b> {error}</li>
-    </ul> 
+    </ul>
     <p><a href="{log_url}">🔗 Show Logs on Airflow</a></p>
     """
 
-    send_email_smtp( 
-        to="eric.oliveira.pro@gmail.com", 
-        subject=subject, 
-        html_content=html_content, 
+    send_email_smtp(
+        to="eric.oliveira.pro@gmail.com",
+        subject=subject,
+        html_content=html_content,
         conn_id="gmail_connection",
     )
+
 
 default_args = {
     'owner': 'ai_team',
