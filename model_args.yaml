@@ -2,7 +2,7 @@ task: detect
 mode: train
 model: yolo26n.pt
 data: /home/adm_ericsantos/projects/PA/corrosion_detection_mlops/data/data.yaml
-epochs: 100
+epochs: 10
 time: null
 patience: 100
 batch: 8

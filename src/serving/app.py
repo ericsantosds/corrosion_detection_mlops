@@ -1,7 +1,6 @@
 """FastAPI service for corrosion detection inference."""
 
 import os
-import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 import uvicorn
@@ -9,15 +8,19 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from mlflow import MlflowClient
+from mlflow.artifacts import download_artifacts
 
-# 1. Environment configuration and MLflow database setup
+# 1. Environment configuration and MLflow tracking setup
 PROJECT_ROOT = os.path.abspath(os.path.join(
     os.path.dirname(__file__), "..", ".."))
-os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}"
+os.environ.setdefault(
+    "MLFLOW_TRACKING_URI",
+    f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}",
+)
 
 
 def load_champion_model() -> YOLO:
-    """Dynamically fetches the champion model from the SQLite database and sanitizes the Windows URL."""
+    """Download and load the champion model registered in MLflow."""
     print("🔍 [MLflow] Searching for the 'champion' model in the Model Registry...")
     try:
         client = MlflowClient()
@@ -26,28 +29,17 @@ def load_champion_model() -> YOLO:
             alias="champion"
         )
 
-        # Safe extraction of Run ID to build the physical Windows path
-        raw_source = model_metadata.source
-        run_id_match = re.search(r'([a-f0-9]{32})', raw_source)
-        if not run_id_match:
-            raise ValueError(f"Invalid Run ID in model metadata: {raw_source}")
-
-        run_id = run_id_match.group(1)
-        model_path = os.path.normpath(os.path.join(
-            PROJECT_ROOT, "mlruns", "1", run_id, "artifacts", "yolo_weights", "best.pt"
-        ))
-
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Physical model file not found at: {model_path}")
+        if not model_metadata.source:
+            raise ValueError("The champion model has no artifact source URI.")
+        model_path = download_artifacts(artifact_uri=model_metadata.source)
 
         print(
-            f"✅ [MLflow] Model successfully loaded from folder: {model_path}")
+            f"✅ [MLflow] Model successfully downloaded to: {model_path}")
         return YOLO(model_path)
 
     except Exception as e:
         print(f"❌ [Error] Failed to load model from Registry: {e}")
-        print("⚠️ Make sure mlflow.db is populated and the 'champion' alias is configured.")
+        print("⚠️ Check MLflow connectivity and the 'champion' model alias.")
         raise RuntimeError(e)
 
 
@@ -144,4 +136,9 @@ def reload_model(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run(
+        "app:app",
+        host=os.getenv("UVICORN_HOST", "127.0.0.1"),
+        port=8000,
+        reload=False,
+    )

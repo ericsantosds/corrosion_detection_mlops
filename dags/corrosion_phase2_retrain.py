@@ -10,6 +10,7 @@ from airflow.utils.email import send_email_smtp
 from airflow.providers.standard.operators.bash import BashOperator
 
 PYTHON_EXECUTABLE = sys.executable
+API_URL = os.getenv("CORROSION_API_URL", "http://127.0.0.1:8000")
 
 
 def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
@@ -90,6 +91,7 @@ with DAG(
         task_id='merge_curated_data',
         bash_command=f"{PYTHON_EXECUTABLE} -m src.data_automation.parse_review_to_train",
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 
@@ -102,6 +104,7 @@ with DAG(
             {PYTHON_EXECUTABLE} -m dvc push;
         """,
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 
@@ -110,6 +113,7 @@ with DAG(
         task_id='train_new_yolo_model',
         bash_command=f"{PYTHON_EXECUTABLE} -m src.model_train.yolo",
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 
@@ -118,14 +122,16 @@ with DAG(
         task_id='model_governance_evaluation',
         bash_command=f"cd {PROJECT_ROOT} && {PYTHON_EXECUTABLE} -m src.model_eval.yolo",
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 
     # 5. CD (Continuous Deployment): Notifies the live API endpoint to dynamic reload the new champion model
     task_live_reload = BashOperator(
         task_id='api_live_reload',
-        bash_command='curl -X POST http://127.0.0.1:8000/reload',
+        bash_command=f"curl --fail --show-error -X POST {API_URL}/reload",
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 

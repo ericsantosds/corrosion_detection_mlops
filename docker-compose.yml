@@ -5,10 +5,15 @@ services:
     container_name: corrosion_fastapi_serving
     restart: always
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    environment:
+      UVICORN_HOST: 0.0.0.0
+      MLFLOW_TRACKING_URI: http://mlflow-server:5000
     volumes:
       - .:/app
-      - /dev/video0:/dev/video0
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -24,10 +29,29 @@ services:
     container_name: corrosion_mlflow_server
     restart: always
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
-      - ./mlruns:/app/mlruns
-    command: mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlruns/mlflow.db
+      - mlflow-data:/mlflow
+    command:
+      - mlflow
+      - ui
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /mlflow/artifacts
+      - --allowed-hosts
+      - mlflow-server:5000,localhost:5000,127.0.0.1:5000
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # 🚀 AIRFLOW HUB (STANDALONE: WEB + SCHEDULER)
   airflow-standalone:
@@ -35,11 +59,21 @@ services:
     container_name: corrosion_airflow_standalone
     restart: always
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
-      - AIRFLOW_HOME=/app/airflow_home
+      AIRFLOW_HOME: /opt/airflow
+      AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      CORROSION_PROJECT_ROOT: /app
+      CORROSION_API_URL: http://fastapi-serving:8000
+      MLFLOW_TRACKING_URI: http://mlflow-server:5000
     volumes:
       - .:/app
+      - airflow-home:/opt/airflow
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+      fastapi-serving:
+        condition: service_started
     deploy:
       resources:
         reservations:
@@ -55,9 +89,23 @@ services:
     container_name: corrosion_airflow_processor
     restart: always
     environment:
-      - AIRFLOW_HOME=/app/airflow_home
+      AIRFLOW_HOME: /opt/airflow
+      AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      CORROSION_PROJECT_ROOT: /app
+      CORROSION_API_URL: http://fastapi-serving:8000
+      MLFLOW_TRACKING_URI: http://mlflow-server:5000
     volumes:
       - .:/app
+      - airflow-home:/opt/airflow
     depends_on:
-      - airflow-standalone
+      airflow-standalone:
+        condition: service_started
+      mlflow-server:
+        condition: service_healthy
+      fastapi-serving:
+        condition: service_started
     command: airflow dag-processor
+
+volumes:
+  airflow-home:
+  mlflow-data:

@@ -41,10 +41,17 @@ def test_send_to_review_generation(mock_imread, mock_yolo, mock_mlflow, tmp_path
     mock_imread.return_value = MagicMock(shape=(100, 100, 3))
 
     with patch("src.data_automation.send_to_review.ONLINE_DATA_DIR", str(online_dir)), \
-            patch("src.data_automation.send_to_review.REVIEW_DIR", str(review_dir)):
+            patch("src.data_automation.send_to_review.REVIEW_DIR", str(review_dir)), \
+            patch(
+                "src.data_automation.send_to_review.download_artifacts",
+                return_value=str(tmp_path / "best.pt"),
+            ) as mock_download:
 
         from src.data_automation.send_to_review import run_active_learning_inference
         run_active_learning_inference()
 
         assert os.path.exists(review_dir / "frame_01.jpg")
         assert os.path.exists(review_dir / "frame_01.json")
+        mock_download.assert_called_once_with(
+            artifact_uri=mock_version.source,
+        )

@@ -4,6 +4,7 @@ import os
 import json
 import cv2
 from mlflow import MlflowClient
+from mlflow.artifacts import download_artifacts
 from ultralytics import YOLO
 import shutil
 
@@ -15,23 +16,21 @@ REVIEW_DIR = os.path.join(PROJECT_ROOT, "review_data")
 
 def run_active_learning_inference():
     """Run inference on online images and write review annotations."""
-    os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}"
+    os.environ.setdefault(
+        "MLFLOW_TRACKING_URI",
+        f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}",
+    )
     os.makedirs(REVIEW_DIR, exist_ok=True)
 
     # 1. Loads the Champion model inside the execution context
     client = MlflowClient()
     model_metadata = client.get_model_version_by_alias(
         "Corrosion_Detection_YOLO_Model", "champion")
-    clean_path = model_metadata.source.replace(
-        "file|///", "").replace("file:///", "").replace("|", "")
-
-    normalized_path = os.path.normpath(clean_path)
-    if normalized_path.startswith("home/"):
-        normalized_path = "/" + normalized_path
-
-    print(
-        f"🎯 [Automation] Loading model weights from absolute path: {normalized_path}")
-    model = YOLO(normalized_path)
+    if not model_metadata.source:
+        raise ValueError("The champion model has no artifact source URI.")
+    model_path = download_artifacts(artifact_uri=model_metadata.source)
+    print(f"🎯 [Automation] Loaded champion weights from: {model_path}")
+    model = YOLO(model_path)
 
     # 2. Scans online images
     valid_extensions = ('.jpg', '.jpeg', '.png')

@@ -23,7 +23,10 @@ if PROJECT_ROOT not in sys.path:
 def main():
     """Evaluate the latest model and promote it when it meets quality gates."""
     # Database configuration at the project root
-    os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}"
+    os.environ.setdefault(
+        "MLFLOW_TRACKING_URI",
+        f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}",
+    )
     os.environ["MLFLOW_EXPERIMENT_NAME"] = "Corrosion_Detection_YOLO"
 
     settings.update({"mlflow": True})
@@ -100,11 +103,9 @@ def main():
         mlflow.log_artifact(model_path, artifact_path="yolo_weights")
 
         # Officially registers this model in the MLflow Model Registry
-        local_artifact_uri = (
-            f"file://{os.path.abspath(os.path.join(run.info.artifact_uri, 'yolo_weights', model_filename))}"
-        )
+        model_uri = f"runs:/{run.info.run_id}/yolo_weights/{model_filename}"
         model_details = mlflow.register_model(
-            local_artifact_uri, "Corrosion_Detection_YOLO_Model")
+            model_uri, "Corrosion_Detection_YOLO_Model")
 
         # ---- MULTI-METRIC BUSINESS LOGIC (CHAMPION VS CHALLENGER) ----
         client = MlflowClient()

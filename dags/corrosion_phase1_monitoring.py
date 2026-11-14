@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import os
 import json
 from pathlib import Path
+import sys
 import pendulum
 from airflow import DAG
 from airflow.utils.email import send_email_smtp
@@ -11,14 +12,32 @@ from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import BranchPythonOperator
 from airflow.providers.smtp.operators.smtp import EmailOperator
 
-# The DAG may be copied into Airflow's dags folder, so allow the repository
-# location to be configured independently of the DAG file's location.
-PROJECT_ROOT = os.environ.get(
-    "CORROSION_PROJECT_ROOT",
-    "/home/adm_ericsantos/projects/PA/corrosion_detection_mlops",
-)
-PROJECT_ROOT = str(Path(PROJECT_ROOT).expanduser().resolve())
-PYTHON_EXECUTABLE = os.path.join(PROJECT_ROOT, ".venv", "bin", "python")
+PYTHON_EXECUTABLE = sys.executable
+
+
+def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
+    candidates = (dag_file.resolve().parent.parent, *
+                  python_executable.absolute().parents)
+    for candidate in candidates:
+        if (candidate / "src" / "observability" / "monitor.py").is_file():
+            return candidate
+    raise RuntimeError(
+        "Could not locate the project root; set CORROSION_PROJECT_ROOT to the checkout path."
+    )
+
+
+configured_project_root = os.getenv("CORROSION_PROJECT_ROOT")
+if configured_project_root:
+    PROJECT_ROOT = Path(configured_project_root).expanduser().resolve()
+    if not (PROJECT_ROOT / "src" / "observability" / "monitor.py").is_file():
+        raise RuntimeError(
+            f"CORROSION_PROJECT_ROOT does not contain src/observability/monitor.py: {PROJECT_ROOT}"
+        )
+else:
+    PROJECT_ROOT = _find_project_root(
+        Path(__file__), Path(PYTHON_EXECUTABLE))
+
+PROJECT_ROOT = str(PROJECT_ROOT)
 LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
 
@@ -114,6 +133,7 @@ with DAG(
         task_id='run_observability_monitor',
         bash_command=f"{PYTHON_EXECUTABLE} -m src.observability.monitor",
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 
@@ -134,6 +154,7 @@ with DAG(
         task_id='generate_pseudo_labels',
         bash_command=f"{PYTHON_EXECUTABLE} -m src.data_automation.send_to_review",
         env={"PYTHONPATH": PROJECT_ROOT},
+        append_env=True,
         cwd=PROJECT_ROOT
     )
 

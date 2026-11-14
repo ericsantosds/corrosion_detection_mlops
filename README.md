@@ -21,9 +21,37 @@ source .venv/bin/activate
 
 ---
 
+## 🐳 Containerized Stack
+
+The Compose stack builds the project with Python 3.11 from `uv`, starts the
+FastAPI service, an MLflow tracking server, and Airflow. Docker Compose with
+NVIDIA Container Toolkit is required for inference and retraining.
+
+```bash
+docker compose up --build
+```
+
+The local interfaces are available at `http://localhost:8000/docs` (API),
+`http://localhost:5000` (MLflow), and `http://localhost:8080` (Airflow).
+Compose persists MLflow data in the `mlflow-data` volume and shares the Airflow
+home between its services. The repository is mounted at `/app` so DAG tasks can
+read and update project data. The webcam client remains a host-side process;
+the API container does not require a camera device.
+
+In Compose, all training and serving processes use the MLflow server at
+`http://mlflow-server:5000`. The API returns `503` until a model has been
+registered and assigned the `champion` alias.
+
+---
+
 ## 📹 Phase 1: Real-Time Data Collection & Dynamic Serving
 
-This initial phase boots up the production application. The local FastAPI server autonomously locates the active `@champion` model weights inside the SQLite database. The OpenCV client captures the webcam stream and uses a background thread pool to dispatch frames, filtering and saving captures into the `online_data/` directory only when detections score above a **0.30 confidence threshold**.
+This initial phase boots up the production application. The FastAPI server
+locates the active `@champion` model in MLflow (local SQLite in a local setup,
+or the MLflow tracking service when using Compose). The OpenCV client captures
+the webcam stream and uses a background thread pool to dispatch frames,
+filtering and saving captures into the `online_data/` directory only when
+detections score above a **0.30 confidence threshold**.
 
 To test inference serving, open **two separate terminals** at the root of the project:
 
