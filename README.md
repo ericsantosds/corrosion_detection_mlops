@@ -108,6 +108,12 @@ airflow standalone
 ```
 *💡 Access the modern web interface at `http://localhost:8080/dags`. Use the username `admin` and the temporary password auto-generated inside this terminal's startup logs.*
 
+To find the generated password when Airflow is running with Docker Compose, run this from the repository root:
+```bash
+sudo docker compose logs airflow-standalone 2>&1 | grep -iE 'username|password'
+```
+Omit `sudo` if your user already has permission to access Docker.
+
 #### Terminal B (Code Parsing Engine)
 *Launches the decoupled loop that reads and refreshes your Python MLOps DAG scripts in real-time:*
 ```bash
