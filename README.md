@@ -232,24 +232,21 @@ The monitoring DAG runs observability and, if drift is detected, sends images
 to `review_data/` for curation. The `review_data/` directory is shared with the
 host through the `/app` bind mount.
 
-For human review, open Labelme on the host with the local `.venv`:
+For human review, run the curation script on the host with the local `.venv`.
+The script opens Labelme; after you save and close it, the script converts the
+annotations and automatically triggers Phase 2 in the running Docker Airflow
+service using `docker compose exec`:
 
 ```bash
 source .venv/bin/activate
-labelme review_data
+./run_curation.sh
 ```
 
-Save and close Labelme. Then trigger the **containerized** retraining DAG:
-
-```bash
-docker compose exec airflow-standalone \
-  airflow dags trigger corrosion_phase2_retrain
-```
-
-Do not run `./run_curation.sh` for this containerized path: it triggers the
-local Airflow CLI. The containerized Phase 2 DAG performs annotation conversion,
-DVC versioning, training, model evaluation/governance, and the API reload in
-order.
+Keep the Compose stack running while using the script. It detects the active
+`airflow-standalone` service and triggers the containerized DAG; if no Compose
+Airflow service is running, it uses local Airflow instead. The containerized
+Phase 2 DAG performs annotation conversion, DVC versioning, training, model
+evaluation/governance, and the API reload in order.
 
 Configure the `gmail_connection` connection in the containerized Airflow UI if
 email alerts are needed. This is separate from any connection configured in

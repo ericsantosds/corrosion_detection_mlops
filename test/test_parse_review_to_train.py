@@ -61,16 +61,50 @@ def test_parse_and_conversion_success(tmp_path):
 
 @patch("subprocess.run")
 def test_trigger_airflow_cli(mock_run, monkeypatch, tmp_path):
-    """Garante que a CLI local do Airflow é chamada com os argumentos corretos"""
+    """Garante que a CLI local do Airflow é chamada com os argumentos corretos."""
     airflow_home = str(tmp_path / "airflow")
     monkeypatch.setenv("AIRFLOW_HOME", airflow_home)
+    monkeypatch.setenv("CORROSION_AIRFLOW_TARGET", "local")
 
     trigger_airflow_phase2()
 
-    # Verifica se o subprocess chamou os binários da CLI de forma correta
     mock_run.assert_called_once()
     args_called = mock_run.call_args[0][0]
     assert "dags" in args_called
     assert "trigger" in args_called
     assert "corrosion_phase2_retrain" in args_called
     assert mock_run.call_args.kwargs["env"]["AIRFLOW_HOME"] == airflow_home
+
+
+@patch("subprocess.run")
+def test_trigger_airflow_cli_in_docker(mock_run, monkeypatch):
+    """Usa a CLI do serviço Airflow quando o alvo é o Compose."""
+    monkeypatch.setenv("CORROSION_AIRFLOW_TARGET", "docker")
+
+    trigger_airflow_phase2()
+
+    mock_run.assert_called_once()
+    command = mock_run.call_args.args[0]
+    assert command[:5] == [
+        "docker", "compose", "exec", "-T", "airflow-standalone",
+    ]
+    assert command[-3:] == [
+        "dags", "trigger", "corrosion_phase2_retrain",
+    ]
+
+
+@patch("subprocess.run")
+def test_trigger_airflow_auto_selects_running_docker(mock_run, monkeypatch):
+    """Auto seleciona Docker Compose quando o serviço Airflow está ativo."""
+    mock_run.side_effect = [
+        MagicMock(stdout="airflow-standalone\n"),
+        MagicMock(stdout="triggered\n"),
+    ]
+    monkeypatch.setenv("CORROSION_AIRFLOW_TARGET", "auto")
+
+    trigger_airflow_phase2()
+
+    assert mock_run.call_count == 2
+    assert mock_run.call_args_list[1].args[0][:5] == [
+        "docker", "compose", "exec", "-T", "airflow-standalone",
+    ]

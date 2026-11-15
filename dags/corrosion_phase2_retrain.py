@@ -90,7 +90,10 @@ with DAG(
     task_merge_curated_data = BashOperator(
         task_id='merge_curated_data',
         bash_command=f"{PYTHON_EXECUTABLE} -m src.data_automation.parse_review_to_train",
-        env={"PYTHONPATH": PROJECT_ROOT},
+        env={
+            "PYTHONPATH": PROJECT_ROOT,
+            "CORROSION_SKIP_AIRFLOW_TRIGGER": "1",
+        },
         append_env=True,
         cwd=PROJECT_ROOT
     )

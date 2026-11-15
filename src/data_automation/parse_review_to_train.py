@@ -17,38 +17,62 @@ CLASS_MAPPING = {"corrosion": 0}
 
 
 def trigger_airflow_phase2():
-    """Trigger phase-two retraining through the Airflow CLI."""
-    # Locates the exact path of the airflow binary inside your active virtual environment
-    venv_bin_dir = os.path.dirname(sys.executable)
-    airflow_binary = os.path.join(venv_bin_dir, "airflow")
-
-    # Command: airflow dags trigger corrosion_phase2_retrain
-    command = [airflow_binary, "dags", "trigger", "corrosion_phase2_retrain"]
-
-    try:
-        print(
-            f"📡 [CLI Trigger] Invoking local Airflow command: {' '.join(command)}")
-
-        # Executes the terminal command securely from within Python
-        result = subprocess.run(
-            command,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            # Preserve the caller's Airflow configuration (including AIRFLOW_HOME).
-            env=os.environ.copy()
+    """Trigger phase-two retraining in Docker Compose or local Airflow."""
+    target = os.getenv("CORROSION_AIRFLOW_TARGET", "auto").lower()
+    if target not in {"auto", "docker", "local"}:
+        raise ValueError(
+            "CORROSION_AIRFLOW_TARGET must be 'auto', 'docker', or 'local'."
         )
 
-        print("🚀 [MLOps] SUCCESS! Airflow CLI output:")
-        print(result.stdout.strip())
+    env = os.environ.copy()
+    if target == "auto":
+        result = subprocess.run(
+            [
+                "docker", "compose", "ps", "--services", "--status", "running",
+                "airflow-standalone",
+            ],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        target = (
+            "docker"
+            if "airflow-standalone" in result.stdout.split()
+            else "local"
+        )
 
-    except subprocess.CalledProcessError as e:
-        print(
-            f"❌ Failed to trigger DAG via Airflow CLI. Exit Code: {e.returncode}")
-        print(f"📝 Error Details: {e.stderr.strip()}")
-    except Exception as e:
-        print(f"❌ Unexpected system failure when launching local trigger: {e}")
+    if target == "docker":
+        command = [
+            "docker", "compose", "exec", "-T", "airflow-standalone",
+            "airflow", "dags", "trigger", "corrosion_phase2_retrain",
+        ]
+    else:
+        airflow_binary = os.path.join(os.path.dirname(sys.executable), "airflow")
+        command = [
+            airflow_binary, "dags", "trigger", "corrosion_phase2_retrain",
+        ]
+
+    print(f"📡 [CLI Trigger] Invoking {target} Airflow: {' '.join(command)}")
+    try:
+        result = subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    except subprocess.CalledProcessError as error:
+        details = error.stderr.strip() or error.stdout.strip()
+        raise RuntimeError(
+            f"Failed to trigger corrosion_phase2_retrain via {target} Airflow"
+            + (f": {details}" if details else "")
+        ) from error
+
+    print("🚀 [MLOps] Airflow trigger output:")
+    print(result.stdout.strip())
 
 
 def main():
@@ -114,7 +138,10 @@ def main():
         f"✅ Curation completed! {processed_count} images converted and merged into the training dataset.")
 
     # TRIGGER DISPATCH: Only runs after all files above are completely written to disk
-    if processed_count > 0:
+    if (
+        processed_count > 0
+        and os.getenv("CORROSION_SKIP_AIRFLOW_TRIGGER") != "1"
+    ):
         trigger_airflow_phase2()
 
 

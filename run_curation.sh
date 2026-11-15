@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+
 source .venv/bin/activate
 
 echo "🎨 Opening Labelme for Human-in-the-Loop curation..."
