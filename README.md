@@ -120,12 +120,29 @@ captured images to `online_data/`.
 ### 5. Run the full workflow with local Airflow
 
 The direct commands above are smoke tests. To let Airflow orchestrate the
-workflow locally, start a dedicated local Airflow instance. In Terminal 3:
+workflow locally, use Airflow's default home directory (`$HOME/airflow`). This
+is the same directory mounted by Docker Compose, so the local and containerized
+Airflow use the same metadata database, configuration, and connections.
+Run only one Airflow mode at a time; the shared SQLite metadata database is not
+intended for simultaneous local and Compose Airflow instances.
+
+Create the directory and initialize the Airflow metadata database once:
+
+```bash
+mkdir -p "$HOME/airflow"
+source .venv/bin/activate
+export CORROSION_PROJECT_ROOT="$PWD"
+export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
+export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
+export CORROSION_API_URL="http://127.0.0.1:8000"
+airflow db migrate
+```
+
+In Terminal 3, start the local Airflow services:
 
 ```bash
 source .venv/bin/activate
 export CORROSION_PROJECT_ROOT="$PWD"
-export AIRFLOW_HOME="$HOME/airflow-corrosion"
 export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
 export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
 export CORROSION_API_URL="http://127.0.0.1:8000"
@@ -133,9 +150,10 @@ airflow standalone
 ```
 
 `airflow standalone` initializes and starts the all-in-one local Airflow
-instance. Use the credentials printed in its startup output to sign in at
-`http://127.0.0.1:8080`. Keep the same `AIRFLOW_HOME` and environment in any
-terminal that triggers a local DAG.
+instance. It uses `$HOME/airflow` by default. Use the credentials printed in
+its startup output to sign in at `http://127.0.0.1:8080`. In other terminals,
+activate `.venv` and export the project settings before triggering a local DAG;
+Airflow will use the same default home directory.
 
 Trigger the monitoring DAG from the Airflow UI or, in a terminal with the
 environment above:
@@ -156,7 +174,6 @@ the same settings so the script triggers this local Airflow instance:
 ```bash
 source .venv/bin/activate
 export CORROSION_PROJECT_ROOT="$PWD"
-export AIRFLOW_HOME="$HOME/airflow-corrosion"
 export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
 export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
 export CORROSION_API_URL="http://127.0.0.1:8000"
@@ -173,6 +190,7 @@ Run `dvc pull` on the host from the repository root before starting Compose; the
 repository is mounted into the containers at `/app`.
 
 ```bash
+mkdir -p "$HOME/airflow"
 dvc pull
 docker compose up --build -d
 docker compose ps
@@ -186,8 +204,21 @@ The services and interfaces are:
 | MLflow | `http://127.0.0.1:5000` |
 | Airflow | `http://127.0.0.1:8080` |
 
-Compose stores MLflow data in the `mlflow-data` volume and shares the Airflow
-home between its Airflow services. The containers use
+Compose stores MLflow data in the `mlflow-data` volume. Both Airflow services
+mount the host's `$HOME/airflow` directory at `/opt/airflow`, matching Airflow's
+default home on the host. This keeps the metadata database and connections
+available to both local Airflow and Docker Airflow. Initialize or upgrade the
+metadata database with:
+
+```bash
+docker compose exec airflow-standalone airflow db migrate
+```
+
+If you previously ran the Compose setup, its Airflow state is still in the old
+named volume `airflow-home`; it is not copied into `$HOME/airflow` or deleted
+by this change. Migrate any connections or history you need before switching.
+
+The containers use
 `MLFLOW_TRACKING_URI=http://mlflow-server:5000`; do not point them at the
 host's local `mlflow.db`.
 
@@ -248,23 +279,52 @@ Airflow service is running, it uses local Airflow instead. The containerized
 Phase 2 DAG performs annotation conversion, DVC versioning, training, model
 evaluation/governance, and the API reload in order.
 
-Configure the `gmail_connection` connection in the containerized Airflow UI if
-email alerts are needed. This is separate from any connection configured in
-local Airflow. For either mode, create the connection in that mode's Airflow UI:
-use connection ID `gmail_connection`, type `Generic`, host `smtp.gmail.com`,
-port `587`, your Gmail address as the login, and a Google App Password as the
-password. Set the Extra JSON to:
+### Configure Gmail email alerts
 
-```json
-{
-  "starttls": true,
-  "disable_ssl": true,
-  "use_ssl": false,
-  "from_email": "your_email@gmail.com"
-}
+The DAGs use the Airflow connection ID `gmail_connection` for SMTP. Because
+local Airflow and Compose share `$HOME/airflow`, create this connection only
+once. Choose one of these commands. The local CLI option prompts for the Gmail
+account and Google App Password, then adds the SMTP connection from the host:
+
+```bash
+read -r -p "Gmail address: " AIRFLOW_SMTP_USER
+read -r -s -p "Google App Password: " AIRFLOW_SMTP_PASSWORD
+printf '\n'
+airflow connections add gmail_connection \
+  --conn-type smtp \
+  --conn-host smtp.gmail.com \
+  --conn-port 587 \
+  --conn-login "$AIRFLOW_SMTP_USER" \
+  --conn-password "$AIRFLOW_SMTP_PASSWORD" \
+  --conn-extra "{\"from_email\":\"${AIRFLOW_SMTP_USER}\",\"disable_ssl\":true,\"disable_tls\":false}"
+unset AIRFLOW_SMTP_PASSWORD
 ```
 
-Never put the real App Password in this file or commit it to Git.
+To add the connection from the Docker Airflow CLI instead, prompt for the
+credentials and run:
+
+```bash
+read -r -p "Gmail address: " AIRFLOW_SMTP_USER
+read -r -s -p "Google App Password: " AIRFLOW_SMTP_PASSWORD
+printf '\n'
+docker compose exec -T \
+  -e AIRFLOW_SMTP_USER="$AIRFLOW_SMTP_USER" \
+  -e AIRFLOW_SMTP_PASSWORD="$AIRFLOW_SMTP_PASSWORD" \
+  airflow-standalone bash -c '
+    airflow connections add gmail_connection \
+      --conn-type smtp \
+      --conn-host smtp.gmail.com \
+      --conn-port 587 \
+      --conn-login "$AIRFLOW_SMTP_USER" \
+      --conn-password "$AIRFLOW_SMTP_PASSWORD" \
+      --conn-extra "{\"from_email\":\"${AIRFLOW_SMTP_USER}\",\"disable_ssl\":true,\"disable_tls\":false}"
+  '
+unset AIRFLOW_SMTP_PASSWORD
+```
+
+Use a Google App Password, not your regular Google account password. Never put
+the real password in this file or commit it to Git. The DAG's current
+notification recipient is `eric.oliveira.pro@gmail.com`.
 
 The model must pass the configured minimums (`mAP50 >= 0.40` and
 `recall >= 0.50`) and outperform the current champion to be promoted. The API
@@ -283,14 +343,16 @@ reduce GPU memory use, but compare evaluation metrics because it may affect
 accuracy. Stop `fastapi-serving` only when inference is not needed, and start it
 again before a DAG task that reloads the API.
 
-To stop the stack without deleting persistent MLflow/Airflow volumes:
+Stop the stack without deleting the persistent Airflow directory or MLflow
+volume:
 
 ```bash
 docker compose stop
 ```
 
-Resume it with `docker compose start`. Avoid `docker compose down -v` unless you
-intend to delete the persisted volumes.
+Resume it with `docker compose start`. `docker compose down -v` deletes the
+named `mlflow-data` volume; the Airflow data in `$HOME/airflow` is a host
+directory and is not removed by that command.
 
 ---
 

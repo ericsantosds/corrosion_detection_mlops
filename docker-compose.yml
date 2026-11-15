@@ -69,7 +69,7 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow-server:5000
     volumes:
       - .:/app
-      - airflow-home:/opt/airflow
+      - ${HOME}/airflow:/opt/airflow
     depends_on:
       mlflow-server:
         condition: service_healthy
@@ -98,7 +98,7 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow-server:5000
     volumes:
       - .:/app
-      - airflow-home:/opt/airflow
+      - ${HOME}/airflow:/opt/airflow
     depends_on:
       airflow-standalone:
         condition: service_started
@@ -109,5 +109,4 @@ services:
     command: airflow dag-processor
 
 volumes:
-  airflow-home:
   mlflow-data:
