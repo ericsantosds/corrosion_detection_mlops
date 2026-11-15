@@ -281,58 +281,29 @@ evaluation/governance, and the API reload in order.
 
 ### Configure Gmail email alerts
 
-The DAGs use the Airflow connection ID `gmail_connection` for SMTP. Because
-local Airflow and Compose share `$HOME/airflow`, create this connection only
-once. Choose one of these commands. The local CLI option prompts for the Gmail
-account and Google App Password, then adds the SMTP connection from the host:
+### Step 3.1: Configure SMTP Connection in Airflow UI (Anti-SSL & Sender Rule)
+To ensure alert delivery via Gmail and bypass strict Airflow 3.0 `Email/SMTP` hooks that cause connection errors (`[SSL: WRONG_VERSION_NUMBER]`), you must define the connection explicitly using the **Generic** type.
 
-```bash
-read -r -p "Gmail address: " AIRFLOW_SMTP_USER
-read -r -s -p "Google App Password: " AIRFLOW_SMTP_PASSWORD
-printf '\n'
-airflow connections add gmail_connection \
-  --conn-type smtp \
-  --conn-host smtp.gmail.com \
-  --conn-port 587 \
-  --conn-login "$AIRFLOW_SMTP_USER" \
-  --conn-password "$AIRFLOW_SMTP_PASSWORD" \
-  --conn-extra "{\"from_email\":\"${AIRFLOW_SMTP_USER}\",\"disable_ssl\":true,\"disable_tls\":false}"
-unset AIRFLOW_SMTP_PASSWORD
-```
-
-To add the connection from the Docker Airflow CLI instead, prompt for the
-credentials and run:
-
-```bash
-read -r -p "Gmail address: " AIRFLOW_SMTP_USER
-read -r -s -p "Google App Password: " AIRFLOW_SMTP_PASSWORD
-printf '\n'
-docker compose exec -T \
-  -e AIRFLOW_SMTP_USER="$AIRFLOW_SMTP_USER" \
-  -e AIRFLOW_SMTP_PASSWORD="$AIRFLOW_SMTP_PASSWORD" \
-  airflow-standalone bash -c '
-    airflow connections add gmail_connection \
-      --conn-type smtp \
-      --conn-host smtp.gmail.com \
-      --conn-port 587 \
-      --conn-login "$AIRFLOW_SMTP_USER" \
-      --conn-password "$AIRFLOW_SMTP_PASSWORD" \
-      --conn-extra "{\"from_email\":\"${AIRFLOW_SMTP_USER}\",\"disable_ssl\":true,\"disable_tls\":false}"
-  '
-unset AIRFLOW_SMTP_PASSWORD
-```
-
-Use a Google App Password, not your regular Google account password. Never put
-the real password in this file or commit it to Git. The DAG's current
-notification recipient is `eric.oliveira.pro@gmail.com`.
-
-The model must pass the configured minimums (`mAP50 >= 0.40` and
-`recall >= 0.50`) and outperform the current champion to be promoted. The API
-returns `503` until a champion is registered. To request a reload manually:
-
-```bash
-curl --fail --show-error -X POST http://127.0.0.1:8000/reload
-```
+1. Open the Airflow Web Dashboard (`http://localhost:8080`).
+2. Navigate to **Admin** -> **Connections** and click the **+** (Add a new record) button.
+3. Configure the connection fields exactly as defined below:
+   * **Connection Id:** `smtp_default` (or `gmail_connection`, corresponding to the `conn_id` string declared in your DAGs).
+   * **Connection Type:** `Generic`
+   * **Host:** `smtp.gmail.com`
+   * **Login:** `your_email@gmail.com`
+   * **Password:** *Your 16-digit Google App Password* (Generated under Google Account Security -> 2-Step Verification -> App Passwords).
+   * **Port:** `587`
+4. In the **Extra** textbox field, paste the unmapped unified JSON configuration exactly as follows:
+   ```json
+   {
+     "starttls": true,
+     "disable_ssl": true,
+     "use_ssl": false,
+     "from_email": "your_email@gmail.com"
+   }
+   ```
+   *💡 Note: Merging security parameters with `from_email` inside a single JSON dictionary fulfills required server parameters and eliminates 'unset from_email' execution exceptions.*
+5. Click **Save**.
 
 ### 4. Resource guidance
 
