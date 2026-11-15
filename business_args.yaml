@@ -1,4 +1,4 @@
 # Minimum localization accuracy
-MIN_MAP50: 0.40
+MIN_MAP50: 0.50
 # Minimum actual defect capture rate
-MIN_RECALL: 0.50
+MIN_RECALL: 0.51
