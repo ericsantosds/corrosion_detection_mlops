@@ -60,6 +60,7 @@ services:
     restart: always
     ports:
       - "127.0.0.1:8080:8080"
+    shm_size: 2gb
     environment:
       AIRFLOW_HOME: /opt/airflow
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags
@@ -88,6 +89,7 @@ services:
     build: .
     container_name: corrosion_airflow_processor
     restart: always
+    shm_size: 2gb
     environment:
       AIRFLOW_HOME: /opt/airflow
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags

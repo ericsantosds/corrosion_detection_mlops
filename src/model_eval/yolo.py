@@ -5,7 +5,14 @@ import os
 import sys
 import mlflow
 from mlflow import MlflowClient
-from helper.config import load_config
+from mlflow.exceptions import MlflowException
+from mlflow.protos.databricks_pb2 import (
+    ALREADY_EXISTS,
+    RESOURCE_ALREADY_EXISTS,
+    ErrorCode,
+)
+from mlflow.store.artifact.runs_artifact_repo import RunsArtifactRepository
+from helper.config import load_config, project_dataset_yaml
 import yaml
 import warnings
 
@@ -20,6 +27,25 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 
+def _register_model_version(client, model_name, model_uri, run_id):
+    """Register a run artifact as a model version, including on MLflow 3."""
+    try:
+        client.create_registered_model(model_name)
+    except MlflowException as error:
+        existing_model_codes = {
+            ErrorCode.Name(RESOURCE_ALREADY_EXISTS),
+            ErrorCode.Name(ALREADY_EXISTS),
+        }
+        if error.error_code not in existing_model_codes:
+            raise
+
+    return client.create_model_version(
+        name=model_name,
+        source=RunsArtifactRepository.get_underlying_uri(model_uri),
+        run_id=run_id,
+    )
+
+
 def main():
     """Evaluate the latest model and promote it when it meets quality gates."""
     # Database configuration at the project root
@@ -30,10 +56,6 @@ def main():
     os.environ["MLFLOW_EXPERIMENT_NAME"] = "Corrosion_Detection_YOLO"
 
     settings.update({"mlflow": True})
-
-    # 1. Loads the dataset path (only data_path continues to come from config/yaml)
-    config = load_config(os.path.join(PROJECT_ROOT, 'data', 'data.yaml'))
-    data_path = config['path']
 
     # 2. AUTOMATIC AND DYNAMIC LOCATION OF THE LATEST TRAINED MODEL
     base_detect_dir = os.path.join(PROJECT_ROOT, "runs", "detect")
@@ -77,10 +99,12 @@ def main():
         mlflow.log_param("evaluated_model_path", model_path)
 
         # Executes the evaluation on the test split
-        metrics = model.val(
-            data=data_path,
-            split='test'
-        )
+        with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
+            metrics = model.val(
+                data=data_yaml_path,
+                split='test',
+                workers=0,
+            )
 
         # Converts YOLO metrics to native float
         current_recall = float(metrics.box.r[0]) if hasattr(
@@ -102,14 +126,14 @@ def main():
         model_filename = os.path.basename(model_path)
         mlflow.log_artifact(model_path, artifact_path="yolo_weights")
 
-        # Officially registers this model in the MLflow Model Registry
+        # Registers the YOLO weights artifact as a model version
         model_uri = f"runs:/{run.info.run_id}/yolo_weights/{model_filename}"
-        model_details = mlflow.register_model(
-            model_uri, "Corrosion_Detection_YOLO_Model")
-
-        # ---- MULTI-METRIC BUSINESS LOGIC (CHAMPION VS CHALLENGER) ----
         client = MlflowClient()
         model_name = "Corrosion_Detection_YOLO_Model"
+        model_details = _register_model_version(
+            client, model_name, model_uri, run.info.run_id)
+
+        # ---- MULTI-METRIC BUSINESS LOGIC (CHAMPION VS CHALLENGER) ----
 
         business_cfg = load_config(os.path.join(
             PROJECT_ROOT, 'business_args.yaml'))

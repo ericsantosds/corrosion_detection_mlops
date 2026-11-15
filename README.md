@@ -172,6 +172,14 @@ The secondary pipeline (`corrosion_phase2_retrain`) wakes up immediately after r
 ### 4.1 Corporate Cloud Sincronization & Governance (DVC via SharePoint Mount)
 To bypass corporate tenant MFA and Azure AD OAuth2 restrictions, the system utilizes a secure file-system mirror strategy. The host Windows machine syncs the SharePoint document library via the native OneDrive sync engine, which the WSL2 Linux environment mounts under `/mnt/c/`.
 
+Before the first training run, restore the dataset from DVC on the host, from the repository root. The Compose stack mounts this checkout at `/app`, so the restored `data/` directory will also be available to the containers:
+
+```bash
+dvc pull
+```
+
+The training configuration uses the repository-relative path `data/data.yaml`; do not replace it with a host-specific absolute path. Training and evaluation normalize the dataset root from `data/data.yaml` to the current checkout at runtime, so no host-specific edit to the DVC-managed dataset is needed.
+
 ```bash
 # 1. Link the local DVC repository tracking configuration directly to the mapped corporate SharePoint mount point
 dvc remote add -f -d sharepoint_{your_enterprise} "/mnt/c/Users/username/{share point path to} - mlops_for_computervision"

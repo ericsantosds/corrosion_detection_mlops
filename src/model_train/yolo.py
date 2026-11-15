@@ -11,6 +11,8 @@ PROJECT_ROOT = os.path.abspath(os.path.join(current_dir, "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from helper.config import project_dataset_yaml
+
 
 def main():
     """Train a model using the project configuration."""
@@ -38,8 +40,8 @@ def main():
     print(
         f"🚀 Starting YOLO training using configurations from: {config_yaml_path}")
 
-    # 5. The magic happens here: we pass only the file path to the 'cfg' parameter
-    model.train(cfg=config_yaml_path)
+    with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
+        model.train(cfg=config_yaml_path, data=data_yaml_path)
 
 
 if __name__ == '__main__':
