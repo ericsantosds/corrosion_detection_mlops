@@ -193,24 +193,66 @@ dvc push
 *💡 Data Lineage Rule:* Dataset variants are committed as Content-Addressable Storage hashes under `files/md5/` inside SharePoint to maintain historic immutability, while the small metadata file `data.dvc` is tracked inside Git to maintain lineage records.
 
 ### 4.2 Training, Governance & Continuous Deployment (MLflow)
-The pipeline automatically triggers training runs, subjects results to multi-metric validation against the active champion using the modern MLflow Alias registry API, and updates live endpoints:
+Training and evaluation must run in Compose so both use the same MLflow server and model registry. First, from the repository root on the host, restore the DVC-managed dataset if it is not already present:
 
 ```bash
-# 1. Launches YOLO model training sessions natively on the GPU (RTX 3050) loading variables from model_args.yaml
-python -m src.model_train.yolo
-
-# 2. Processes verification loops over test splits while tracking model registrations via MLflow
-# Enforces multi-metric gate criteria checking business metrics (mAP50 > 50% & Recall > 40%) against the current active champion alias
-python -m src.model_eval.yolo
-
-# 3. CD (Continuous Deployment): Fires a hot-reload HTTP POST request straight into production endpoints
-# The live FastAPI instance safely updates its loaded in-memory weights with ZERO DOWNTIME!
-curl -X POST http://127.0.0.1:8000/reload
-
-# 4. Spins up the MLflow Tracking Server UI for model provenance and historical experiment audit runs
-mlflow ui --backend-store-uri sqlite:///mlflow.db
+dvc pull
 ```
-*💡 Note: Navigate to `http://127.0.0.1:5000` to review comparison charts, track model runs, and see the updated challenger package take over the active **`champion`** alias status tag.*
+
+The normal workflow keeps the Compose services running. Ensure the stack is up, then train and evaluate in order:
+
+```bash
+docker compose up -d
+
+# Train using model_args.yaml. Wait for the command to finish successfully.
+docker compose exec airflow-standalone python -m src.model_train.yolo
+
+# Evaluate the completed run and register its weights in MLflow.
+docker compose exec airflow-standalone python -m src.model_eval.yolo
+```
+
+Do not start evaluation until training has completed and produced
+`runs/detect/<run>/weights/best.pt`. Evaluation uses the test split and registers
+the resulting weights. Promotion to `champion` requires meeting the minimum
+business metrics (`mAP50 >= 0.40` and `recall >= 0.50`) and outperforming the
+current champion.
+
+#### If Docker runs out of memory
+
+On machines with limited RAM, pause the Airflow and serving services while
+training and evaluation run. Keep `mlflow-server` running so both commands
+continue to use the Compose registry:
+
+```bash
+docker compose stop airflow-processor fastapi-serving airflow-standalone
+
+# Run training in a one-off container. Wait for successful completion.
+docker compose run --rm --no-deps airflow-standalone \
+  python -m src.model_train.yolo
+
+# Evaluate and register the completed training run.
+docker compose run --rm --no-deps airflow-standalone \
+  python -m src.model_eval.yolo
+
+# Resume the paused services after evaluation (also run this if a command fails).
+docker compose start airflow-standalone airflow-processor fastapi-serving
+```
+
+Check that training produced `best.pt` before running evaluation. If training or
+evaluation fails, skip the next step, restart the paused services, and resolve
+the error before retrying.
+
+#### Reload the serving API
+
+After a new model is promoted to `champion`, reload the live API:
+
+```bash
+curl --fail --show-error -X POST http://127.0.0.1:8000/reload
+```
+
+Use `http://127.0.0.1:5000` to review runs, evaluation metrics, and the model
+registry. The local Compose MLflow UI is already served there; do not start a
+second local `mlflow ui` process for the Compose registry.
 
 ---
 
