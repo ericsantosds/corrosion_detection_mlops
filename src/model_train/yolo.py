@@ -3,6 +3,7 @@
 import os
 import sys
 from ultralytics import YOLO, settings
+from helper.config import project_dataset_yaml
 
 # 1. Configures the paths before making any custom imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -10,8 +11,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(current_dir, "..", ".."))
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
-
-from helper.config import project_dataset_yaml
 
 
 def main():
