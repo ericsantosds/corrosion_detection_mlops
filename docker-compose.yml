@@ -84,29 +84,5 @@ services:
               capabilities: [gpu]
     command: airflow standalone
 
-  # 🧭 AIRFLOW DAG PROCESSOR (ISOLADO PARA O AIRFLOW 3.0+)
-  airflow-processor:
-    build: .
-    container_name: corrosion_airflow_processor
-    restart: always
-    shm_size: 2gb
-    environment:
-      AIRFLOW_HOME: /opt/airflow
-      AIRFLOW__CORE__DAGS_FOLDER: /app/dags
-      CORROSION_PROJECT_ROOT: /app
-      CORROSION_API_URL: http://fastapi-serving:8000
-      MLFLOW_TRACKING_URI: http://mlflow-server:5000
-    volumes:
-      - .:/app
-      - ${HOME}/airflow:/opt/airflow
-    depends_on:
-      airflow-standalone:
-        condition: service_started
-      mlflow-server:
-        condition: service_healthy
-      fastapi-serving:
-        condition: service_started
-    command: airflow dag-processor
-
 volumes:
   mlflow-data:
