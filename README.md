@@ -329,12 +329,57 @@ directory and is not removed by that command.
 
 ## Dataset and experiment reproducibility
 
+### Corporate SharePoint/OneDrive DVC remote (WSL2)
+
+For corporate SharePoint libraries protected by MFA/Azure AD, use the Windows
+host's native OneDrive sync and access its local mirror from WSL2. Configure
+DVC to use the mounted directory as its default remote (the path below is
+specific to this workstation):
+
+```bash
+dvc remote add --local -f -d sharepoint \
+  "/mnt/c/Users/myuser/My Enterprise /Documents - folder"
+dvc add data
+dvc push
+```
+
+`dvc add data` recalculates the dataset checksum and updates `data.dvc`.
+Dataset contents are stored by content hash in the DVC remote (for example,
+under `files/md5/`); Git tracks the small `data.dvc` pointer so a dataset
+version can be tied to a Git revision. The `--local` option keeps this
+machine-specific path out of the shared DVC configuration. Docker containers
+cannot automatically access a WSL2 host path; mount the remote into the
+services that run DVC or configure a remote reachable from those containers.
+
 `data.dvc` tracks the dataset version. Restore a specific version by checking
 out the matching Git revision and pulling the data:
 
 ```bash
 git checkout <commit-hash> -- data.dvc
 dvc pull
+```
+
+### Model governance and live reload
+
+For a direct local run, use the same local MLflow tracking URI configured above.
+After training, evaluation logs the test metrics and registers a model
+candidate. It must meet the configured business thresholds (`mAP50 >= 0.50`
+and `Recall >= 0.51`); an eligible candidate becomes the initial `champion` or
+replaces it only when its mAP50 is higher. The API must already be running
+with this same tracking URI before requesting a reload:
+
+```bash
+python -m src.model_train.yolo
+python -m src.model_eval.yolo
+curl --fail --show-error -X POST http://127.0.0.1:8000/reload
+```
+
+The reload endpoint loads the current `champion` into the running API without
+restarting the process. To inspect experiment runs and registered model
+versions, start the local MLflow UI as described above:
+
+```bash
+mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI" --host 127.0.0.1 --port 5000
 ```
 
 The local workflow stores tracking data in `mlflow.db`; the containerized
