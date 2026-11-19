@@ -90,7 +90,12 @@ def test_existing_champion_is_rescored_on_test(monkeypatch):
     monkeypatch.setattr(
         yolo, "project_dataset_yaml", lambda _: nullcontext("dataset.yaml"))
     test_metrics = SimpleNamespace(
-        box=SimpleNamespace(map50=0.82))
+        box=SimpleNamespace(
+            r=0.72,
+            p=0.76,
+            map50=0.82,
+            map=0.62,
+        ))
     evaluate = Mock(return_value=test_metrics)
     monkeypatch.setattr(yolo, "_evaluate_final_test", evaluate)
 
@@ -104,7 +109,19 @@ def test_existing_champion_is_rescored_on_test(monkeypatch):
 def test_challenger_not_better_keeps_current_champion(
     challenger_map50, monkeypatch,
 ):
-    monkeypatch.setattr(yolo, "_get_champion_test_map50", lambda _: 0.8)
+    monkeypatch.setattr(yolo.mlflow, "set_tag", Mock())
+    monkeypatch.setattr(yolo.mlflow, "log_param", Mock())
+    monkeypatch.setattr(yolo.mlflow, "log_metrics", Mock())
+    monkeypatch.setattr(
+        yolo,
+        "_get_champion_test_metrics",
+        lambda _: {
+            "metrics_recall": 0.7,
+            "metrics_precision": 0.75,
+            "metrics_mAP50": 0.8,
+            "metrics_mAP50_95": 0.6,
+        },
+    )
     client = Mock()
     client.get_model_version_by_alias.return_value = SimpleNamespace(
         version="1", source="models:/champion/1",
@@ -123,7 +140,19 @@ def test_challenger_not_better_keeps_current_champion(
 
 
 def test_challenger_that_beats_champion_is_promoted(monkeypatch):
-    monkeypatch.setattr(yolo, "_get_champion_test_map50", lambda _: 0.8)
+    monkeypatch.setattr(yolo.mlflow, "set_tag", Mock())
+    monkeypatch.setattr(yolo.mlflow, "log_param", Mock())
+    monkeypatch.setattr(yolo.mlflow, "log_metrics", Mock())
+    monkeypatch.setattr(
+        yolo,
+        "_get_champion_test_metrics",
+        lambda _: {
+            "metrics_recall": 0.7,
+            "metrics_precision": 0.75,
+            "metrics_mAP50": 0.8,
+            "metrics_mAP50_95": 0.6,
+        },
+    )
     client = Mock()
     client.get_model_version_by_alias.return_value = SimpleNamespace(
         version="1", source="models:/champion/1",
@@ -186,4 +215,9 @@ def test_governance_evaluation_uses_test_metrics_for_promotion(
     evaluate_test.assert_called_once_with(model, "dataset.yaml")
     evaluate_validation.assert_not_called()
     promote.assert_called_once_with(
-        client, yolo.MODEL_NAME, candidate, metrics["metrics_mAP50"])
+        client,
+        yolo.MODEL_NAME,
+        candidate,
+        metrics["metrics_mAP50"],
+        challenger_metrics=metrics,
+    )

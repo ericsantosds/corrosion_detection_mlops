@@ -123,14 +123,14 @@ def _evaluate_final_test(model: YOLO, data_yaml_path: str) -> Any:
     return model.val(data=data_yaml_path, split="test", workers=0)
 
 
-def _get_champion_test_map50(champion_version: Any) -> float:
-    """Rescore the current champion on test data for promotion comparison.
+def _get_champion_test_metrics(champion_version: Any) -> dict[str, float]:
+    """Rescore the current champion and return all test metrics.
 
     Args:
         champion_version: MLflow registry metadata for the current champion.
 
     Returns:
-        The champion's test mAP50.
+        The champion's test recall, precision, mAP50, and mAP50-95.
 
     Raises:
         ValueError: If the champion has no artifact source URI.
@@ -142,7 +142,17 @@ def _get_champion_test_map50(champion_version: Any) -> float:
     model = YOLO(model_path)
     with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
         metrics = _evaluate_final_test(model, data_yaml_path)
-    return float(metrics.box.map50)
+    return {
+        "metrics_recall": _metric_value(metrics.box.r),
+        "metrics_precision": _metric_value(metrics.box.p),
+        "metrics_mAP50": float(metrics.box.map50),
+        "metrics_mAP50_95": float(metrics.box.map),
+    }
+
+
+def _get_champion_test_map50(champion_version: Any) -> float:
+    """Return the rescored champion test mAP50 for promotion comparisons."""
+    return _get_champion_test_metrics(champion_version)["metrics_mAP50"]
 
 
 def _promote_if_better(
@@ -150,6 +160,7 @@ def _promote_if_better(
     model_name: str,
     candidate: Any,
     challenger_map50: float,
+    challenger_metrics: dict[str, float] | None = None,
 ) -> bool:
     """Promote a challenger only when it beats the champion on test data.
 
@@ -166,14 +177,66 @@ def _promote_if_better(
     if champion_version is None:
         client.set_registered_model_alias(
             model_name, "champion", candidate.version)
+        mlflow.set_tag("promotion_decision", "promoted_first_champion")
+        mlflow.log_param("champion_version", "none")
+        mlflow.log_param("challenger_version", str(candidate.version))
+        mlflow.log_param("tournament_result", "first_champion")
         return True
 
-    champion_map50 = _get_champion_test_map50(champion_version)
+    champion_metrics = _get_champion_test_metrics(champion_version)
+    champion_map50 = champion_metrics["metrics_mAP50"]
+    mlflow.log_param("champion_version", str(champion_version.version))
+    mlflow.log_param("challenger_version", str(candidate.version))
+    mlflow.log_metrics({
+        f"champion_{name}": value
+        for name, value in champion_metrics.items()
+    })
+    if challenger_metrics:
+        mlflow.log_metrics({
+            f"challenger_{name}": value
+            for name, value in challenger_metrics.items()
+        })
+        mlflow.log_metrics({
+            "comparison_delta_recall": (
+                challenger_metrics["metrics_recall"]
+                - champion_metrics["metrics_recall"]
+            ),
+            "comparison_delta_precision": (
+                challenger_metrics["metrics_precision"]
+                - champion_metrics["metrics_precision"]
+            ),
+            "comparison_delta_mAP50": challenger_map50
+            - champion_metrics["metrics_mAP50"],
+            "comparison_delta_mAP50_95": (
+                challenger_metrics["metrics_mAP50_95"]
+                - champion_metrics["metrics_mAP50_95"]
+            ),
+        })
+
+    if challenger_metrics:
+        print(
+            "Performance comparison - "
+            f"Champion Recall={champion_metrics['metrics_recall']:.4f}, "
+            f"Precision={champion_metrics['metrics_precision']:.4f}, "
+            f"mAP50={champion_map50:.4f} | "
+            f"Challenger Recall={challenger_metrics['metrics_recall']:.4f}, "
+            f"Precision={challenger_metrics['metrics_precision']:.4f}, "
+            f"mAP50={challenger_map50:.4f}"
+        )
+    else:
+        print(
+            f"Performance comparison - Champion mAP50={champion_map50:.4f} "
+            f"| Challenger mAP50={challenger_map50:.4f}"
+        )
     if challenger_map50 <= champion_map50:
+        mlflow.set_tag("promotion_decision", "kept_champion")
+        mlflow.log_param("tournament_result", "challenger_not_better")
         return False
 
     client.set_registered_model_alias(
         model_name, "champion", candidate.version)
+    mlflow.set_tag("promotion_decision", "promoted_challenger")
+    mlflow.log_param("tournament_result", "challenger_won")
     return True
 
 
@@ -327,7 +390,20 @@ def _run_governance_evaluation(model: YOLO, model_path: Path) -> bool:
         min_recall = float(business_config["MIN_RECALL"])
         challenger_map50 = logged_metrics["metrics_mAP50"]
         challenger_recall = logged_metrics["metrics_recall"]
+        mlflow.log_metrics({
+            "business_min_mAP50": min_map50,
+            "business_min_recall": min_recall,
+            "business_challenger_mAP50": challenger_map50,
+            "business_challenger_recall": challenger_recall,
+        })
+        mlflow.log_params({
+            "business_map50_threshold_met": str(
+                challenger_map50 >= min_map50).lower(),
+            "business_recall_threshold_met": str(
+                challenger_recall >= min_recall).lower(),
+        })
         if challenger_map50 < min_map50 or challenger_recall < min_recall:
+            mlflow.set_tag("promotion_decision", "rejected_business_rules")
             print("Candidate rejected: business quality thresholds were not met.")
             return False
 
@@ -336,6 +412,7 @@ def _run_governance_evaluation(model: YOLO, model_path: Path) -> bool:
             MODEL_NAME,
             candidate,
             challenger_map50,
+            challenger_metrics=logged_metrics,
         )
         _set_model_metadata(client, MODEL_NAME)
         if promoted:
