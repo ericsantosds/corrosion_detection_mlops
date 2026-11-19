@@ -98,18 +98,6 @@ python -m src.model_eval.yolo
 This direct run is useful for checking the Python environment and model code. It
 does **not** exercise Airflow orchestration.
 
-The `--final-test` option records test-split metrics in a separate MLflow run
-without promoting a model:
-
-```bash
-python -m src.model_eval.yolo --final-test
-```
-
-This records `final_test_*` metrics and does not promote models. Because the
-test split is used for champion promotion, it is not an independent holdout;
-do not report its results as an unbiased final estimate. Create a fresh,
-untouched test split if an independent final estimate is required.
-
 ### 4. Run local serving (optional)
 
 After a model has been registered with the `champion` alias, start the API in a
