@@ -20,6 +20,7 @@ from mlflow.protos.databricks_pb2 import (
 from mlflow.store.artifact.runs_artifact_repo import RunsArtifactRepository
 from ultralytics import YOLO, settings
 import yaml
+from helper.config import load_config, project_dataset_yaml
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -27,7 +28,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from helper.config import load_config, project_dataset_yaml
 
 MODEL_NAME = "Corrosion_Detection_YOLO_Model"
 EXPERIMENT_NAME = "Corrosion_Detection_YOLO"
