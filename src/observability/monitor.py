@@ -20,7 +20,16 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def extract_image_features(image_dir: str) -> pd.DataFrame:
-    """Scan an image directory and extract physical and structural properties."""
+    """Extract visual statistics for readable images in a directory.
+
+    Args:
+        image_dir: Directory containing source images.
+
+    Returns:
+        A DataFrame with one row per readable image and its color, brightness,
+        and texture features. Returns an empty DataFrame if the directory does
+        not exist or contains no readable images.
+    """
     features_list = []
     valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
 
@@ -68,7 +77,12 @@ def extract_image_features(image_dir: str) -> pd.DataFrame:
 
 
 def main():
-    """Extract image features and generate a data drift report."""
+    """Compare production and reference images and write drift reports.
+
+    Writes a JSON summary and an interactive HTML report under ``OUTPUT_DIR``.
+    If either input directory has no readable images, writes a JSON report
+    indicating that drift monitoring was skipped.
+    """
     print("📊 [Evidently AI] Starting image metadata extraction...")
 
     # Extracts features from training images (Stable Reference Baseline)

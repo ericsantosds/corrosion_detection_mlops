@@ -14,7 +14,11 @@ if PROJECT_ROOT not in sys.path:
 
 
 def main():
-    """Train a model using the project configuration."""
+    """Train the YOLO model using the project dataset and training settings.
+
+    Raises:
+        FileNotFoundError: If the training configuration is missing.
+    """
     # 2. Configures the local URI for the MLflow SQLite database
     os.environ.setdefault(
         "MLFLOW_TRACKING_URI",

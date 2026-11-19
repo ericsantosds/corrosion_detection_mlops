@@ -20,7 +20,15 @@ os.environ.setdefault(
 
 
 def load_champion_model() -> YOLO:
-    """Download and load the champion model registered in MLflow."""
+    """Download and load the champion model registered in MLflow.
+
+    Returns:
+        The loaded Ultralytics YOLO model.
+
+    Raises:
+        RuntimeError: If the registry lookup, artifact download, or model
+            loading fails.
+    """
     print("🔍 [MLflow] Searching for the 'champion' model in the Model Registry...")
     try:
         client = MlflowClient()
@@ -45,7 +53,14 @@ def load_champion_model() -> YOLO:
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
-    """Manage model loading and cleanup during the application lifecycle."""
+    """Load the serving model when the FastAPI application starts.
+
+    Args:
+        fastapi_app: FastAPI application whose state stores the model.
+
+    Yields:
+        Control to the running application after initialization.
+    """
     try:
         # Stores the model instance inside the controlled FastAPI state
         fastapi_app.state.model = load_champion_model()
@@ -66,7 +81,19 @@ app = FastAPI(
 
 @app.post("/predict", summary="Real-time inference for corrosion detection")
 async def predict(request: Request, file: UploadFile = File(...)):
-    """Run object detection on an uploaded image."""
+    """Run object detection on an uploaded image.
+
+    Args:
+        request: Current request, used to access application model state.
+        file: Uploaded image file.
+
+    Returns:
+        Detection status, count, labels, confidence scores, and bounding boxes.
+
+    Raises:
+        HTTPException: If the model is unavailable, the upload is not an image,
+            or image processing fails.
+    """
     # Safely retrieves the model from the current request state
     model: YOLO = request.app.state.model
     if model is None:
@@ -123,7 +150,17 @@ async def predict(request: Request, file: UploadFile = File(...)):
 
 @app.post("/reload", summary="Updates the production model without downing the API")
 def reload_model(request: Request):
-    """Reload the current champion model in a thread-safe manner."""
+    """Replace the serving model with the latest registered champion.
+
+    Args:
+        request: Current request, used to update application model state.
+
+    Returns:
+        A success status and message.
+
+    Raises:
+        HTTPException: If the champion model cannot be loaded.
+    """
     try:
         # Replaces the old instance in the application state with the newly promoted version
         request.app.state.model = load_champion_model()

@@ -9,10 +9,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 class WebcamServingClient:
-    """Class responsible for managing webcam frame capture and drawing Bounding Boxes in real time."""
+    """Capture webcam frames and display API detections in real time.
+
+    Args:
+        api_url: Prediction endpoint URL.
+        check_interval: Minimum number of seconds between API requests.
+    """
 
     def __init__(self, api_url: str, check_interval: float = 0.5):
-        """Initialize the API client and webcam processing state."""
+        """Initialize API configuration, storage paths, and worker state.
+
+        Args:
+            api_url: Prediction endpoint URL.
+            check_interval: Minimum number of seconds between API requests.
+        """
         self.api_url = api_url
         self.check_interval = check_interval
 
@@ -28,6 +38,12 @@ class WebcamServingClient:
         self.current_detections = []
 
     def _send_frame_to_api(self, frame, timestamp: str):
+        """Send one frame and save it when corrosion is detected.
+
+        Args:
+            frame: OpenCV image array to submit.
+            timestamp: Unique timestamp used to name saved review frames.
+        """
         try:
             success, img_encoded = cv2.imencode(".jpg", frame)
             if not success:
@@ -62,7 +78,11 @@ class WebcamServingClient:
             self.is_sending = False
 
     def start_monitoring(self):
-        """Capture webcam frames and display API detections in real time."""
+        """Capture webcam frames and display API detections in real time.
+
+        The camera, display windows, and worker pool are released when the
+        monitoring loop exits.
+        """
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("❌ Error: Could not access the webcam.")
@@ -122,7 +142,7 @@ class WebcamServingClient:
 
 
 def main():
-    """Start the webcam client."""
+    """Start the webcam client using the local prediction API."""
     # Correct URL pointing to your local FastAPI endpoint
     API_URL = "http://127.0.0.1:8000/predict"
 

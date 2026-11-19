@@ -17,7 +17,13 @@ CLASS_MAPPING = {"corrosion": 0}
 
 
 def trigger_airflow_phase2():
-    """Trigger phase-two retraining in Docker Compose or local Airflow."""
+    """Trigger phase-two retraining in Docker Compose or local Airflow.
+
+    Raises:
+        ValueError: If ``CORROSION_AIRFLOW_TARGET`` is unsupported.
+        RuntimeError: If the Airflow CLI fails to trigger the DAG.
+        subprocess.CalledProcessError: If automatic Docker detection fails.
+    """
     target = os.getenv("CORROSION_AIRFLOW_TARGET", "auto").lower()
     if target not in {"auto", "docker", "local"}:
         raise ValueError(
@@ -76,7 +82,11 @@ def trigger_airflow_phase2():
 
 
 def main():
-    """Process reviewed annotations and trigger retraining when needed."""
+    """Convert reviewed Labelme annotations and request retraining.
+
+    The Airflow trigger is skipped when there are no reviewed annotations or
+    when ``CORROSION_SKIP_AIRFLOW_TRIGGER`` is set to ``"1"``.
+    """
     print("🔄 Starting data conversion from Labelme to YOLO format...")
 
     if not os.path.exists(REVIEW_DIR) or not os.listdir(REVIEW_DIR):

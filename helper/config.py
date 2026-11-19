@@ -8,7 +8,18 @@ import yaml
 
 
 def load_config(path):
-    """Load settings from `data/data.yaml` and return selected or nested keys."""
+    """Load a YAML configuration file.
+
+    Args:
+        path: Filesystem path to the YAML file.
+
+    Returns:
+        The parsed YAML value.
+
+    Raises:
+        FileNotFoundError: If the configuration file does not exist.
+        yaml.YAMLError: If the file contains invalid YAML.
+    """
     with open(path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
@@ -17,7 +28,15 @@ def load_config(path):
 
 @contextmanager
 def project_dataset_yaml(project_root):
-    """Provide a temporary dataset YAML with a root valid in this checkout."""
+    """Yield a temporary dataset YAML rooted at the current checkout.
+
+    Args:
+        project_root: Root directory of the project checkout.
+
+    Yields:
+        Path to the temporary YAML file. The file is deleted when the context
+        manager exits.
+    """
     data_yaml = Path(project_root) / "data" / "data.yaml"
     config = load_config(data_yaml)
     config["path"] = str(data_yaml.parent.resolve())

@@ -15,6 +15,19 @@ API_URL = os.getenv("CORROSION_API_URL", "http://127.0.0.1:8000")
 
 
 def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
+    """Locate the checkout containing the phase-two curation script.
+
+    Args:
+        dag_file: Path to this DAG file, which may be copied into Airflow home.
+        python_executable: Python executable path used by Airflow.
+
+    Returns:
+        The project root containing
+        ``src/data_automation/parse_review_to_train.py``.
+
+    Raises:
+        RuntimeError: If no project root can be found.
+    """
     candidates = (dag_file.resolve().parent.parent, *
                   python_executable.absolute().parents)
     for candidate in candidates:
@@ -36,7 +49,11 @@ LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
 
 def gmail_fail_alert(context):
-    """Send an email alert when an Airflow task fails."""
+    """Send an email alert containing context for a failed Airflow task.
+
+    Args:
+        context: Airflow task context with the task instance and exception.
+    """
     ti = context["task_instance"]
     dag_id = ti.dag_id
     task_id = ti.task_id
@@ -70,7 +87,18 @@ def gmail_fail_alert(context):
 
 
 def choose_deployment_path(ti):
-    """Reload the API only when model evaluation promoted the challenger."""
+    """Select the serving reload branch from the evaluation task result.
+
+    Args:
+        ti: Airflow task instance used to retrieve the evaluation output.
+
+    Returns:
+        The API reload task when promoted, otherwise the no-reload task.
+
+    Raises:
+        ValueError: If the evaluation task did not emit a valid promotion
+            result.
+    """
     evaluation_output = ti.xcom_pull(
         task_ids="model_governance_evaluation")
     if not isinstance(evaluation_output, str):

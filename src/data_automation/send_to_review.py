@@ -15,7 +15,12 @@ REVIEW_DIR = os.path.join(PROJECT_ROOT, "review_data")
 
 
 def run_active_learning_inference():
-    """Run inference on online images and write review annotations."""
+    """Annotate online images with the champion model for human review.
+
+    Raises:
+        ValueError: If the champion registry entry has no artifact source.
+        MlflowException: If the champion model cannot be retrieved.
+    """
     os.environ.setdefault(
         "MLFLOW_TRACKING_URI",
         f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}",

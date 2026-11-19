@@ -88,8 +88,8 @@ python -m src.model_train.yolo
 
 Wait for training to finish successfully and produce
 `runs/detect/<run>/weights/best.pt`. Then evaluate and register the model. The
-evaluation uses the validation split for quality gates and challenger-versus-
-champion selection:
+test split is used for quality gates and challenger-versus-champion promotion;
+the validation split does not determine promotion:
 
 ```bash
 python -m src.model_eval.yolo
@@ -98,20 +98,17 @@ python -m src.model_eval.yolo
 This direct run is useful for checking the Python environment and model code. It
 does **not** exercise Airflow orchestration.
 
-After model selection is complete and the champion is frozen, run the final
-test evaluation once:
+The `--final-test` option records test-split metrics in a separate MLflow run
+without promoting a model:
 
 ```bash
 python -m src.model_eval.yolo --final-test
 ```
 
-This records `final_test_*` metrics in a separate MLflow run and does not
-promote models. Do not use these results to tune or select models; repeated
-inspection of the final test set compromises its independence.
-Earlier versions of this project evaluated candidates on the test split. If
-those versions were run and their test results influenced model choices, this
-split is no longer an untouched holdout; create a fresh final test split before
-claiming an independent final estimate.
+This records `final_test_*` metrics and does not promote models. Because the
+test split is used for champion promotion, it is not an independent holdout;
+do not report its results as an unbiased final estimate. Create a fresh,
+untouched test split if an independent final estimate is required.
 
 ### 4. Run local serving (optional)
 
@@ -259,17 +256,18 @@ docker compose exec airflow-standalone \
   python -m src.model_eval.yolo
 ```
 
-The automated evaluation uses the validation split for model selection and
-does not inspect the final test split. After development and selection are
-complete, evaluate the frozen champion on the final test set once:
+The automated evaluation uses the test split for candidate quality gates and
+champion promotion; it does not use the validation split for promotion. The
+`--final-test` command below only records metrics and does not promote a model:
 
 ```bash
 docker compose exec airflow-standalone \
   python -m src.model_eval.yolo --final-test
 ```
 
-Do not use final-test metrics to tune or select models; repeated inspection
-compromises the test set's independence.
+Because the automated workflow already uses the test split for promotion,
+these metrics are not an independent final estimate. Use a separate untouched
+test split if an unbiased final estimate is required.
 
 ### 3. Let Airflow orchestrate the containerized workflow
 

@@ -1,34 +1,59 @@
-"""Evaluate and register the corrosion detection YOLO model."""
+"""Evaluate YOLO models and govern champion promotion through MLflow."""
 
-from ultralytics import YOLO, settings
+import argparse
 import os
+from pathlib import Path
 import sys
+from typing import Any
+import warnings
+
 import mlflow
 from mlflow import MlflowClient
+from mlflow.artifacts import download_artifacts
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import (
     ALREADY_EXISTS,
     RESOURCE_ALREADY_EXISTS,
+    RESOURCE_DOES_NOT_EXIST,
     ErrorCode,
 )
 from mlflow.store.artifact.runs_artifact_repo import RunsArtifactRepository
-from helper.config import load_config, project_dataset_yaml
+from ultralytics import YOLO, settings
 import yaml
-import warnings
 
-# Silences MLflow API deprecation warnings from legacy modules
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# 1. Configures the paths before making any custom imports
-current_dir = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(current_dir, "..", ".."))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+from helper.config import load_config, project_dataset_yaml
+
+MODEL_NAME = "Corrosion_Detection_YOLO_Model"
+EXPERIMENT_NAME = "Corrosion_Detection_YOLO"
 
 
-def _register_model_version(client, model_name, model_uri, run_id):
-    """Register a run artifact as a model version, including on MLflow 3."""
+def _register_model_version(
+    client: MlflowClient,
+    model_name: str,
+    model_uri: str,
+    run_id: str,
+) -> Any:
+    """Register a model artifact, creating the registry entry if necessary.
+
+    Args:
+        client: MLflow client used to access the model registry.
+        model_name: Name of the registered model.
+        model_uri: URI of the model artifact stored in the evaluation run.
+        run_id: ID of the MLflow run that logged the artifact.
+
+    Returns:
+        The created MLflow model-version metadata.
+
+    Raises:
+        MlflowException: If registration fails for a reason other than the
+            model already existing.
+    """
     try:
         client.create_registered_model(model_name)
     except MlflowException as error:
@@ -46,176 +71,316 @@ def _register_model_version(client, model_name, model_uri, run_id):
     )
 
 
-def main():
-    """Evaluate the latest model and promote it when it meets quality gates."""
-    # Database configuration at the project root
+def _get_champion_version(client: MlflowClient, model_name: str) -> Any | None:
+    """Return the version with the champion alias, if one is registered.
+
+    Args:
+        client: MLflow client used to query the registry.
+        model_name: Name of the registered model.
+
+    Returns:
+        The aliased model version, or ``None`` if the alias does not exist.
+
+    Raises:
+        MlflowException: If the registry lookup fails for a reason other than
+            the missing alias.
+    """
+    try:
+        return client.get_model_version_by_alias(model_name, "champion")
+    except MlflowException as error:
+        missing_alias_codes = {
+            RESOURCE_DOES_NOT_EXIST,
+            ErrorCode.Name(RESOURCE_DOES_NOT_EXIST),
+        }
+        if error.error_code not in missing_alias_codes:
+            raise
+        return None
+
+
+def _evaluate_validation(model: YOLO, data_yaml_path: str) -> Any:
+    """Evaluate a model on the validation split.
+
+    Args:
+        model: YOLO model to evaluate.
+        data_yaml_path: Path to the dataset configuration.
+
+    Returns:
+        Ultralytics validation metrics. This split is not used for promotion.
+    """
+    return model.val(data=data_yaml_path, split="val", workers=0)
+
+
+def _evaluate_final_test(model: YOLO, data_yaml_path: str) -> Any:
+    """Evaluate a model on the test split.
+
+    Args:
+        model: YOLO model to evaluate.
+        data_yaml_path: Path to the dataset configuration.
+
+    Returns:
+        Ultralytics test metrics.
+    """
+    return model.val(data=data_yaml_path, split="test", workers=0)
+
+
+def _get_champion_test_map50(champion_version: Any) -> float:
+    """Rescore the current champion on test data for promotion comparison.
+
+    Args:
+        champion_version: MLflow registry metadata for the current champion.
+
+    Returns:
+        The champion's test mAP50.
+
+    Raises:
+        ValueError: If the champion has no artifact source URI.
+    """
+    if not champion_version.source:
+        raise ValueError("The champion model has no artifact source URI.")
+
+    model_path = download_artifacts(artifact_uri=champion_version.source)
+    model = YOLO(model_path)
+    with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
+        metrics = _evaluate_final_test(model, data_yaml_path)
+    return float(metrics.box.map50)
+
+
+def _promote_if_better(
+    client: MlflowClient,
+    model_name: str,
+    candidate: Any,
+    challenger_map50: float,
+) -> bool:
+    """Promote a challenger only when it beats the champion on test data.
+
+    Args:
+        client: MLflow client used to query and update the registry.
+        model_name: Name of the registered model.
+        candidate: Newly registered candidate model version.
+        challenger_map50: Candidate's test mAP50.
+
+    Returns:
+        Whether the candidate was promoted.
+    """
+    champion_version = _get_champion_version(client, model_name)
+    if champion_version is None:
+        client.set_registered_model_alias(
+            model_name, "champion", candidate.version)
+        return True
+
+    champion_map50 = _get_champion_test_map50(champion_version)
+    if challenger_map50 <= champion_map50:
+        return False
+
+    client.set_registered_model_alias(
+        model_name, "champion", candidate.version)
+    return True
+
+
+def _metric_value(value: Any) -> float:
+    """Convert a scalar or one-element metric array to a Python float.
+
+    Args:
+        value: Metric value returned by Ultralytics.
+
+    Returns:
+        The scalar metric value.
+    """
+    try:
+        return float(value[0])
+    except (IndexError, KeyError, TypeError):
+        return float(value)
+
+
+def _get_latest_model_path() -> Path:
+    """Find the most recently modified YOLO training run's best weights.
+
+    Returns:
+        Path to the latest training run's ``best.pt`` weights.
+
+    Raises:
+        FileNotFoundError: If no training run or weights file is available.
+    """
+    detect_dir = PROJECT_ROOT / "runs" / "detect"
+    if not detect_dir.is_dir():
+        raise FileNotFoundError(
+            f"No training directory found at: {detect_dir}")
+
+    training_runs = [
+        path for path in detect_dir.iterdir()
+        if path.is_dir()
+        and not path.name.startswith(("predict", "val"))
+    ]
+    if not training_runs:
+        raise FileNotFoundError(
+            f"No valid training folder found at: {detect_dir}")
+
+    latest_run = max(training_runs, key=lambda path: path.stat().st_mtime)
+    model_path = latest_run / "weights" / "best.pt"
+    if not model_path.is_file():
+        raise FileNotFoundError(
+            f"The weights file 'best.pt' was not found at: {model_path}")
+    return model_path
+
+
+def _log_evaluation_metrics(metrics: Any, prefix: str = "") -> dict[str, float]:
+    """Extract and log precision, recall, and mAP metrics to MLflow.
+
+    Args:
+        metrics: Ultralytics validation or test result.
+        prefix: Optional metric-name prefix, such as ``"final_test_"``.
+
+    Returns:
+        A mapping of logged metric names to Python float values.
+    """
+    values = {
+        "recall": _metric_value(metrics.box.r),
+        "precision": _metric_value(metrics.box.p),
+        "mAP50": float(metrics.box.map50),
+        "mAP50_95": float(metrics.box.map),
+    }
+    logged = {f"{prefix}metrics_{name}": value
+              for name, value in values.items()}
+    mlflow.log_metrics(logged)
+    return logged
+
+
+def _set_model_metadata(
+    client: MlflowClient,
+    model_name: str,
+) -> None:
+    """Attach framework, task, and dataset-version tags to a model.
+
+    Args:
+        client: MLflow client used to update model metadata.
+        model_name: Name of the registered model.
+    """
+    client.set_registered_model_tag(
+        name=model_name,
+        key="framework",
+        value="ultralytics-yolo",
+    )
+    client.set_registered_model_tag(
+        name=model_name,
+        key="task",
+        value="corrosion-detection",
+    )
+
+    dvc_file_path = PROJECT_ROOT / "data.dvc"
+    dvc_hash = "unknown"
+    if dvc_file_path.is_file():
+        with dvc_file_path.open(encoding="utf-8") as file:
+            dvc_data = yaml.safe_load(file) or {}
+        dvc_hash = dvc_data.get("outs", [{}])[0].get("md5", "unknown")
+
+    client.set_registered_model_tag(
+        name=model_name,
+        key="dataset_version_md5",
+        value=dvc_hash,
+    )
+
+
+def _run_final_test(model: YOLO, model_path: Path) -> None:
+    """Record test metrics without registering or promoting a model.
+
+    Args:
+        model: Frozen YOLO model to evaluate.
+        model_path: Path to the model weights.
+    """
+    with mlflow.start_run(run_name="final_test_evaluation"):
+        mlflow.set_tag("pipeline_stage", "final_test")
+        mlflow.log_param("evaluated_model_path", str(model_path))
+        with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
+            metrics = _evaluate_final_test(model, data_yaml_path)
+        _log_evaluation_metrics(metrics, prefix="final_test_")
+
+
+def _run_governance_evaluation(model: YOLO, model_path: Path) -> bool:
+    """Evaluate a candidate on test data and apply promotion quality gates.
+
+    Args:
+        model: Candidate YOLO model to evaluate.
+        model_path: Path to the candidate model weights.
+
+    Returns:
+        Whether the candidate became the registered champion.
+    """
+    client = MlflowClient()
+    with mlflow.start_run(run_name="champion_promotion_test") as run:
+        mlflow.set_tag("pipeline_stage", "champion_promotion")
+        mlflow.log_param("evaluated_model_path", str(model_path))
+        with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
+            metrics = _evaluate_final_test(model, data_yaml_path)
+
+        logged_metrics = _log_evaluation_metrics(metrics)
+        model_uri = f"runs:/{run.info.run_id}/yolo_weights/{model_path.name}"
+        mlflow.log_artifact(str(model_path), artifact_path="yolo_weights")
+        candidate = _register_model_version(
+            client,
+            MODEL_NAME,
+            model_uri,
+            run.info.run_id,
+        )
+
+        business_config = load_config(PROJECT_ROOT / "business_args.yaml")
+        min_map50 = float(business_config["MIN_MAP50"])
+        min_recall = float(business_config["MIN_RECALL"])
+        challenger_map50 = logged_metrics["metrics_mAP50"]
+        challenger_recall = logged_metrics["metrics_recall"]
+        if challenger_map50 < min_map50 or challenger_recall < min_recall:
+            print("Candidate rejected: business quality thresholds were not met.")
+            return False
+
+        promoted = _promote_if_better(
+            client,
+            MODEL_NAME,
+            candidate,
+            challenger_map50,
+        )
+        _set_model_metadata(client, MODEL_NAME)
+        if promoted:
+            print("Candidate promoted to champion.")
+        else:
+            print("Candidate did not outperform the current champion.")
+        return promoted
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Evaluate the latest model, or run a one-time final test.
+
+    Args:
+        argv: Optional command-line arguments, primarily for programmatic use.
+            When omitted, arguments are read from the process command line.
+
+    Raises:
+        FileNotFoundError: If no trained model weights are available.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--final-test",
+        action="store_true",
+        help="Evaluate a frozen model on the final test split without promotion.",
+    )
+    args = parser.parse_args(argv)
+
     os.environ.setdefault(
         "MLFLOW_TRACKING_URI",
-        f"sqlite:///{os.path.join(PROJECT_ROOT, 'mlflow.db')}",
+        f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}",
     )
-    os.environ["MLFLOW_EXPERIMENT_NAME"] = "Corrosion_Detection_YOLO"
-
+    os.environ["MLFLOW_EXPERIMENT_NAME"] = EXPERIMENT_NAME
     settings.update({"mlflow": True})
 
-    # 2. AUTOMATIC AND DYNAMIC LOCATION OF THE LATEST TRAINED MODEL
-    base_detect_dir = os.path.join(PROJECT_ROOT, "runs", "detect")
+    model_path = _get_latest_model_path()
+    print(f"Loading model weights from: {model_path}")
+    model = YOLO(str(model_path))
 
-    # Lists ONLY actual training folders, ignoring validations (val) and predictions (predict)
-    all_train_folders = [
-        os.path.join(base_detect_dir, d)
-        for d in os.listdir(base_detect_dir)
-        if os.path.isdir(os.path.join(base_detect_dir, d))
-        and not d.startswith("predict")
-        and not d.startswith("val")
-    ]
+    if args.final_test:
+        _run_final_test(model, model_path)
+        return
 
-    if not all_train_folders:
-        raise FileNotFoundError(
-            f"❌ No valid training folder found at: {base_detect_dir}")
-
-    # Finds the training folder modified last by the operating system
-    latest_train_folder = max(all_train_folders, key=os.path.getmtime)
-
-    # Builds the final path to the 'best.pt' weights file
-    model_path = os.path.normpath(os.path.join(
-        latest_train_folder, "weights", "best.pt"))
-
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"❌ The weights file 'best.pt' was not found at: {model_path}")
-
-    print(f"📦 [Automation] Latest training located: {latest_train_folder}")
-    print(
-        f"🎯 [Automation] Loading weights for test set evaluation: {model_path}")
-
-    # Loads the trained model dynamically
-    model = YOLO(model_path)
-
-    # Starts the exclusive run for testing
-    with mlflow.start_run(run_name="evaluation_test_set") as run:
-
-        # Adds structural tags to the Run
-        mlflow.set_tag("pipeline_stage", "testing")
-        mlflow.log_param("evaluated_model_path", model_path)
-
-        # Executes the evaluation on the test split
-        with project_dataset_yaml(PROJECT_ROOT) as data_yaml_path:
-            metrics = model.val(
-                data=data_yaml_path,
-                split='test',
-                workers=0,
-            )
-
-        # Converts YOLO metrics to native float
-        current_recall = float(metrics.box.r[0]) if hasattr(
-            metrics.box.r, "__len__") else float(metrics.box.r)
-        current_precision = float(metrics.box.p[0]) if hasattr(
-            metrics.box.p, "__len__") else float(metrics.box.p)
-        current_mAP50 = float(metrics.box.map50)
-        current_mAP50_95 = float(metrics.box.map)
-
-        # Logs to MLflow Tracking
-        mlflow.log_metrics({
-            "metrics_recall": current_recall,
-            "metrics_precision": current_precision,
-            "metrics_mAP50": current_mAP50,
-            "metrics_mAP50_95": current_mAP50_95
-        })
-
-        # Saves the physical weights file as a Run artifact
-        model_filename = os.path.basename(model_path)
-        mlflow.log_artifact(model_path, artifact_path="yolo_weights")
-
-        # Registers the YOLO weights artifact as a model version
-        model_uri = f"runs:/{run.info.run_id}/yolo_weights/{model_filename}"
-        client = MlflowClient()
-        model_name = "Corrosion_Detection_YOLO_Model"
-        model_details = _register_model_version(
-            client, model_name, model_uri, run.info.run_id)
-
-        # ---- MULTI-METRIC BUSINESS LOGIC (CHAMPION VS CHALLENGER) ----
-
-        business_cfg = load_config(os.path.join(
-            PROJECT_ROOT, 'business_args.yaml'))
-        MIN_MAP50 = float(business_cfg['MIN_MAP50'])
-        MIN_RECALL = float(business_cfg['MIN_RECALL'])
-
-        print("\n--- BUSINESS RULES VALIDATION ---")
-        print(
-            f"Obtained Metrics -> mAP50: {current_mAP50:.4f} | Recall: {current_recall:.4f}")
-
-        # 1. Check against baseline absolute thresholds
-        if current_mAP50 < MIN_MAP50 or current_recall < MIN_RECALL:
-            print("❌ REJECTED: Model did not meet the minimum business requirements.")
-            sys.exit(0)
-
-        print("✅ Passed baseline requirements. Checking tournament against current Champion...")
-
-        # 2. Modern secure checkout using the MLflow Aliases system
-        try:
-            # Queries the registry for the registered version currently carrying the 'champion' tag
-            champion_version = client.get_model_version_by_alias(
-                model_name, "champion")
-
-            if champion_version and champion_version.run_id:
-                champion_run = client.get_run(champion_version.run_id)
-                champion_mAP50 = float(
-                    champion_run.data.metrics.get("metrics_mAP50", 0.0))
-                print(
-                    f"👑 Active Champion found! Version: "
-                    f"{champion_version.version} | Champion mAP50: "
-                    f"{champion_mAP50:.4f}"
-                )
-
-                # Tournament condition: challenger must strictly outperform the champion
-                if current_mAP50 > champion_mAP50:
-                    print(
-                        "🚀 CHALLENGER WINS! Reassigning 'champion' alias to the new model version.")
-                    client.set_registered_model_alias(
-                        model_name, "champion", model_details.version)
-                else:
-                    print(
-                        "📉 Challenger did not out-perform the current Champion. Keeping active model.")
-            else:
-                print(
-                    "✨ No active Champion found with valid Run ID. Promoting current model to first Champion!")
-                client.set_registered_model_alias(
-                    model_name, "champion", model_details.version)
-
-        except Exception:
-            # Fallback triggered when the database is fresh and the 'champion' alias does not exist yet
-            print(
-                "✨ No active Champion found in database. Promoting current model to first Champion!")
-            client.set_registered_model_alias(
-                model_name, "champion", model_details.version)
-
-        # ---- ADDITIONAL METADATA ATTRIBUTION (TAGS) ----
-        client.set_registered_model_tag(
-            name=model_name,
-            key="framework",
-            value="ultralytics-yolo"
-        )
-        client.set_registered_model_tag(
-            name=model_name,
-            key="task",
-            value="corrosion-detection"
-        )
-
-        # Dataset version tracking via DVC
-        dvc_file_path = os.path.join(PROJECT_ROOT, "data.dvc")
-        dvc_hash = "unknown"
-
-        if os.path.exists(dvc_file_path):
-            with open(dvc_file_path, "r") as f:
-                dvc_data = yaml.safe_load(f)
-                dvc_hash = dvc_data.get("outs", [{}])[0].get("md5", "unknown")
-
-        client.set_registered_model_tag(
-            name=model_name,
-            key="dataset_version_md5",
-            value=dvc_hash
-        )
+    promoted = _run_governance_evaluation(model, model_path)
+    print(f"MODEL_PROMOTED={str(promoted).lower()}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

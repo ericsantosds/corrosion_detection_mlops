@@ -81,7 +81,7 @@ def test_evaluation_uses_the_requested_dataset_split(
     )
 
 
-def test_existing_champion_is_rescored_on_validation(monkeypatch):
+def test_existing_champion_is_rescored_on_test(monkeypatch):
     champion_version = SimpleNamespace(source="models:/champion/1")
     champion_model = Mock()
     monkeypatch.setattr(
@@ -89,12 +89,12 @@ def test_existing_champion_is_rescored_on_validation(monkeypatch):
     monkeypatch.setattr(yolo, "YOLO", lambda _: champion_model)
     monkeypatch.setattr(
         yolo, "project_dataset_yaml", lambda _: nullcontext("dataset.yaml"))
-    validation_metrics = SimpleNamespace(
+    test_metrics = SimpleNamespace(
         box=SimpleNamespace(map50=0.82))
-    evaluate = Mock(return_value=validation_metrics)
-    monkeypatch.setattr(yolo, "_evaluate_validation", evaluate)
+    evaluate = Mock(return_value=test_metrics)
+    monkeypatch.setattr(yolo, "_evaluate_final_test", evaluate)
 
-    score = yolo._get_champion_validation_map50(champion_version)
+    score = yolo._get_champion_test_map50(champion_version)
 
     assert score == 0.82
     evaluate.assert_called_once_with(champion_model, "dataset.yaml")
@@ -104,14 +104,10 @@ def test_existing_champion_is_rescored_on_validation(monkeypatch):
 def test_challenger_not_better_keeps_current_champion(
     challenger_map50, monkeypatch,
 ):
-    monkeypatch.setattr(yolo, "_get_champion_validation_map50", lambda _: 0.8)
+    monkeypatch.setattr(yolo, "_get_champion_test_map50", lambda _: 0.8)
     client = Mock()
     client.get_model_version_by_alias.return_value = SimpleNamespace(
-        version="1",
-        run_id="champion-run",
-    )
-    client.get_run.return_value = SimpleNamespace(
-        data=SimpleNamespace(metrics={"metrics_mAP50": 0.8}),
+        version="1", source="models:/champion/1",
     )
     candidate = SimpleNamespace(version="2")
 
@@ -127,14 +123,10 @@ def test_challenger_not_better_keeps_current_champion(
 
 
 def test_challenger_that_beats_champion_is_promoted(monkeypatch):
-    monkeypatch.setattr(yolo, "_get_champion_validation_map50", lambda _: 0.8)
+    monkeypatch.setattr(yolo, "_get_champion_test_map50", lambda _: 0.8)
     client = Mock()
     client.get_model_version_by_alias.return_value = SimpleNamespace(
-        version="1",
-        run_id="champion-run",
-    )
-    client.get_run.return_value = SimpleNamespace(
-        data=SimpleNamespace(metrics={"metrics_mAP50": 0.8}),
+        version="1", source="models:/champion/1",
     )
     candidate = SimpleNamespace(version="2")
 
@@ -151,3 +143,47 @@ def test_challenger_that_beats_champion_is_promoted(monkeypatch):
         "champion",
         "2",
     )
+
+
+def test_governance_evaluation_uses_test_metrics_for_promotion(
+    monkeypatch, tmp_path,
+):
+    """Use test metrics for promotion and avoid validation-based selection."""
+    run = SimpleNamespace(info=SimpleNamespace(run_id="candidate-run"))
+    candidate = SimpleNamespace(version="2")
+    model = Mock()
+    client = Mock()
+    evaluate_test = Mock(return_value=object())
+    evaluate_validation = Mock()
+    metrics = {
+        "metrics_mAP50": 0.8,
+        "metrics_recall": 0.75,
+        "metrics_precision": 0.7,
+        "metrics_mAP50_95": 0.6,
+    }
+
+    monkeypatch.setattr(
+        yolo.mlflow, "start_run", lambda **_: nullcontext(run))
+    monkeypatch.setattr(yolo, "MlflowClient", lambda: client)
+    monkeypatch.setattr(
+        yolo, "project_dataset_yaml", lambda _: nullcontext("dataset.yaml"))
+    monkeypatch.setattr(yolo, "_evaluate_final_test", evaluate_test)
+    monkeypatch.setattr(yolo, "_evaluate_validation", evaluate_validation)
+    monkeypatch.setattr(yolo, "_log_evaluation_metrics", lambda _: metrics)
+    monkeypatch.setattr(yolo, "_register_model_version", lambda *args: candidate)
+    monkeypatch.setattr(
+        yolo, "load_config", lambda _: {"MIN_MAP50": 0.5, "MIN_RECALL": 0.5})
+    promote = Mock(return_value=True)
+    monkeypatch.setattr(yolo, "_promote_if_better", promote)
+    monkeypatch.setattr(yolo, "_set_model_metadata", Mock())
+    monkeypatch.setattr(yolo.mlflow, "set_tag", Mock())
+    monkeypatch.setattr(yolo.mlflow, "log_param", Mock())
+    monkeypatch.setattr(yolo.mlflow, "log_artifact", Mock())
+
+    assert yolo._run_governance_evaluation(
+        model, tmp_path / "best.pt") is True
+
+    evaluate_test.assert_called_once_with(model, "dataset.yaml")
+    evaluate_validation.assert_not_called()
+    promote.assert_called_once_with(
+        client, yolo.MODEL_NAME, candidate, metrics["metrics_mAP50"])

@@ -16,6 +16,18 @@ PYTHON_EXECUTABLE = sys.executable
 
 
 def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
+    """Locate the checkout containing the phase-one monitoring script.
+
+    Args:
+        dag_file: Path to this DAG file, which may be copied into Airflow home.
+        python_executable: Python executable path used by Airflow.
+
+    Returns:
+        The project root containing ``src/observability/monitor.py``.
+
+    Raises:
+        RuntimeError: If no project root can be found.
+    """
     candidates = (dag_file.resolve().parent.parent, *
                   python_executable.absolute().parents)
     for candidate in candidates:
@@ -42,7 +54,11 @@ LOCAL_TZ = pendulum.timezone("America/Sao_Paulo")
 
 
 def gmail_fail_alert(context):
-    """Send an email alert when an Airflow task fails."""
+    """Send an email alert containing context for a failed Airflow task.
+
+    Args:
+        context: Airflow task context with the task instance and exception.
+    """
     ti = context["task_instance"]
     dag_id = ti.dag_id
     task_id = ti.task_id
@@ -86,7 +102,12 @@ default_args = {
 
 
 def check_drift_and_decide():
-    """Choose the next task based on the latest drift report."""
+    """Route the DAG according to the latest observation report.
+
+    Returns:
+        The stop task when no drift is present or the label-generation and
+        email tasks when dataset drift is detected.
+    """
     json_path = os.path.join(PROJECT_ROOT, "runs",
                              "observability", "drift_report.json")
     print(f"🔍 [Airflow] Looking for report at: {json_path}")

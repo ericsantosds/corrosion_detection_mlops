@@ -15,7 +15,12 @@ TRAIN_LABELS_DIR = os.path.join(PROJECT_ROOT, "data", "labels", "train")
 
 
 def merge_datasets():
-    """Copy generated labels and their images into training data."""
+    """Copy predicted labels and matching images into the training dataset.
+
+    Only the most recently modified prediction folder is used. Images without
+    a matching prediction label are removed from the online-data queue after
+    the matching images and labels are copied.
+    """
     print("Starting the merging process of the new pseudo-labeled data...")
 
     # 1. LOCALIZAÇÃO DINÂMICA PROTEGIDA (Roda apenas quando a função é chamada)
