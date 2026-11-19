@@ -87,7 +87,9 @@ python -m src.model_train.yolo
 ```
 
 Wait for training to finish successfully and produce
-`runs/detect/<run>/weights/best.pt`. Then evaluate and register the model:
+`runs/detect/<run>/weights/best.pt`. Then evaluate and register the model. The
+evaluation uses the validation split for quality gates and challenger-versus-
+champion selection:
 
 ```bash
 python -m src.model_eval.yolo
@@ -95,6 +97,21 @@ python -m src.model_eval.yolo
 
 This direct run is useful for checking the Python environment and model code. It
 does **not** exercise Airflow orchestration.
+
+After model selection is complete and the champion is frozen, run the final
+test evaluation once:
+
+```bash
+python -m src.model_eval.yolo --final-test
+```
+
+This records `final_test_*` metrics in a separate MLflow run and does not
+promote models. Do not use these results to tune or select models; repeated
+inspection of the final test set compromises its independence.
+Earlier versions of this project evaluated candidates on the test split. If
+those versions were run and their test results influenced model choices, this
+split is no longer an untouched holdout; create a fresh final test split before
+claiming an independent final estimate.
 
 ### 4. Run local serving (optional)
 
@@ -241,6 +258,18 @@ docker compose exec airflow-standalone \
 docker compose exec airflow-standalone \
   python -m src.model_eval.yolo
 ```
+
+The automated evaluation uses the validation split for model selection and
+does not inspect the final test split. After development and selection are
+complete, evaluate the frozen champion on the final test set once:
+
+```bash
+docker compose exec airflow-standalone \
+  python -m src.model_eval.yolo --final-test
+```
+
+Do not use final-test metrics to tune or select models; repeated inspection
+compromises the test set's independence.
 
 ### 3. Let Airflow orchestrate the containerized workflow
 

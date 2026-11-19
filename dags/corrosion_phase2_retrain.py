@@ -7,6 +7,7 @@ import sys
 import pendulum
 from airflow import DAG
 from airflow.utils.email import send_email_smtp
+from airflow.providers.standard.operators.python import BranchPythonOperator
 from airflow.providers.standard.operators.bash import BashOperator
 
 PYTHON_EXECUTABLE = sys.executable
@@ -68,6 +69,25 @@ def gmail_fail_alert(context):
     )
 
 
+def choose_deployment_path(ti):
+    """Reload the API only when model evaluation promoted the challenger."""
+    evaluation_output = ti.xcom_pull(
+        task_ids="model_governance_evaluation")
+    if not isinstance(evaluation_output, str):
+        raise ValueError("Model evaluation did not return a promotion result.")
+
+    result_lines = evaluation_output.strip().splitlines()
+    if not result_lines or result_lines[-1] not in {
+        "MODEL_PROMOTED=true",
+        "MODEL_PROMOTED=false",
+    }:
+        raise ValueError("Model evaluation returned an invalid promotion result.")
+
+    if result_lines[-1] == "MODEL_PROMOTED=true":
+        return "api_live_reload"
+    return "stop_before_live_reload"
+
+
 default_args = {
     'owner': 'ai_team',
     'depends_on_past': False,
@@ -126,7 +146,13 @@ with DAG(
         bash_command=f"cd {PROJECT_ROOT} && {PYTHON_EXECUTABLE} -m src.model_eval.yolo",
         env={"PYTHONPATH": PROJECT_ROOT},
         append_env=True,
-        cwd=PROJECT_ROOT
+        cwd=PROJECT_ROOT,
+        do_xcom_push=True,
+    )
+
+    task_choose_deployment_path = BranchPythonOperator(
+        task_id='choose_deployment_path',
+        python_callable=choose_deployment_path,
     )
 
     # 5. CD (Continuous Deployment): Notifies the live API endpoint to dynamic reload the new champion model
@@ -138,5 +164,11 @@ with DAG(
         cwd=PROJECT_ROOT
     )
 
-    # Linear dependencies of Phase 2
-    task_merge_curated_data >> task_dvc_versioning >> task_train_yolo >> task_evaluate_and_gate >> task_live_reload
+    task_stop_before_live_reload = BashOperator(
+        task_id='stop_before_live_reload',
+        bash_command='echo "Challenger was not promoted; keeping the serving model unchanged."',
+    )
+
+    task_merge_curated_data >> task_dvc_versioning >> task_train_yolo >> task_evaluate_and_gate
+    task_evaluate_and_gate >> task_choose_deployment_path
+    task_choose_deployment_path >> [task_live_reload, task_stop_before_live_reload]
