@@ -11,7 +11,11 @@ fi
 mkdir -p curated_data
 cp -an review_data/. curated_data/
 
-QT_QPA_PLATFORM=xcb uv run labelme curated_data
+if [[ -n "${WAYLAND_DISPLAY:-}" && -z "${QT_QPA_PLATFORM:-}" ]]; then
+    export QT_QPA_PLATFORM=wayland
+fi
+
+QT_X11_NO_MITSHM=1 LIBGL_ALWAYS_SOFTWARE=1 uv run labelme curated_data
 
 if ! find curated_data -maxdepth 1 -type f -name '*.json' -print -quit | grep -q .; then
     echo "No curated annotations found in curated_data; Phase 2 was not triggered." >&2
