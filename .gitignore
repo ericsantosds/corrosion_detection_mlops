@@ -25,6 +25,8 @@ weights/
 # Texto
 *.txt
 review_data/
+curated_data/
+production_predictions/
 
 
 # Distribution / packaging

@@ -23,7 +23,7 @@ def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
 
     Returns:
         The project root containing
-        ``src/data_automation/parse_review_to_train.py``.
+        ``src/data_automation/parse_curated_data_to_train.py``.
 
     Raises:
         RuntimeError: If no project root can be found.
@@ -31,7 +31,7 @@ def _find_project_root(dag_file: Path, python_executable: Path) -> Path:
     candidates = (dag_file.resolve().parent.parent, *
                   python_executable.absolute().parents)
     for candidate in candidates:
-        if (candidate / "src" / "data_automation" / "parse_review_to_train.py").is_file():
+        if (candidate / "src" / "data_automation" / "parse_curated_data_to_train.py").is_file():
             return candidate
     raise RuntimeError(
         "Could not locate the project root; set CORROSION_PROJECT_ROOT to the checkout path."
@@ -128,16 +128,16 @@ default_args = {
 with DAG(
     'corrosion_phase2_retrain',
     default_args=default_args,
-    description='Phase 2 MLOps: Triggered via post-curation Webhook for retraining and deployment',
+    description='Phase 2 MLOps: Converts curated data, retrains, and deploys the model',
     schedule=None,  # IMPORTANT: Disabled! Awaits external trigger exclusively via HTTP API
     catchup=False,
     tags=['mlops', 'retrain', 'deployment']
 ) as dag:
 
-    # 1. Converts manual annotations from Labelme into normalized TXT files
+    # 1. Converts human-corrected predictions into normalized YOLO labels
     task_merge_curated_data = BashOperator(
         task_id='merge_curated_data',
-        bash_command=f"{PYTHON_EXECUTABLE} -m src.data_automation.parse_review_to_train",
+        bash_command=f"{PYTHON_EXECUTABLE} -m src.data_automation.parse_curated_data_to_train",
         env={
             "PYTHONPATH": PROJECT_ROOT,
             "CORROSION_SKIP_AIRFLOW_TRIGGER": "1",

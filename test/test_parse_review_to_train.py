@@ -1,13 +1,18 @@
 import os
 import json
+import subprocess
 import pytest
 from unittest.mock import patch, MagicMock
 
-# Substitua 'src.data_automation.parse_review_to_train' pelo caminho real do seu script
-from src.data_automation.parse_review_to_train import main, trigger_airflow_phase2
+from src.data_automation.parse_curated_data_to_train import (
+    main,
+    trigger_airflow_phase2,
+)
 
 
 def test_parse_and_conversion_success(tmp_path):
+    curated_dir = tmp_path / "curated_data"
+    curated_dir.mkdir()
     review_dir = tmp_path / "review_data"
     review_dir.mkdir()
 
@@ -28,16 +33,27 @@ def test_parse_and_conversion_success(tmp_path):
         ]
     }
 
-    # Cria os arquivos físicos na fila de curadoria temporária
-    with open(review_dir / "sample_corrosion.json", "w") as f:
-        json.dump(fake_labelme_data, f)
-    (review_dir / "sample_corrosion.jpg").write_text("fake_binary_image")
+    production_prediction = dict(fake_labelme_data)
+    production_prediction["shapes"] = [
+        {
+            "shape_type": "rectangle",
+            "label": "corrosion",
+            "points": [[0, 0], [20, 20]],
+        }
+    ]
 
-    # Moca os caminhos e a função do Airflow CLI para isolar o teste
-    with patch("src.data_automation.parse_review_to_train.REVIEW_DIR", str(review_dir)), \
-            patch("src.data_automation.parse_review_to_train.TRAIN_IMAGES_DIR", str(train_images)), \
-            patch("src.data_automation.parse_review_to_train.TRAIN_LABELS_DIR", str(train_labels)), \
-            patch("src.data_automation.parse_review_to_train.trigger_airflow_phase2") as mock_trigger:
+    # Keeps the production prediction as an immutable source copy.
+    with open(review_dir / "sample_corrosion.json", "w") as f:
+        json.dump(production_prediction, f)
+    (review_dir / "sample_corrosion.jpg").write_text("fake_binary_image")
+    with open(curated_dir / "sample_corrosion.json", "w") as f:
+        json.dump(fake_labelme_data, f)
+    (curated_dir / "sample_corrosion.jpg").write_text("fake_binary_image")
+
+    with patch("src.data_automation.parse_curated_data_to_train.CURATED_DIR", str(curated_dir)), \
+            patch("src.data_automation.parse_curated_data_to_train.TRAIN_IMAGES_DIR", str(train_images)), \
+            patch("src.data_automation.parse_curated_data_to_train.TRAIN_LABELS_DIR", str(train_labels)), \
+            patch("src.data_automation.parse_curated_data_to_train.trigger_airflow_phase2") as mock_trigger:
 
         main()
 
@@ -54,9 +70,68 @@ def test_parse_and_conversion_success(tmp_path):
     # Coordenadas convertidas esperadas: Centro_X=0.3, Centro_Y=0.3, Largura=0.4, Altura=0.4
     assert yolo_line == "0 0.300000 0.300000 0.400000 0.400000"
 
-    # Confere se a imagem original foi movida e o JSON limpo
+    # Curated files are consumed; the production prediction remains untouched.
     assert os.path.exists(os.path.join(train_images, "sample_corrosion.jpg"))
-    assert not os.path.exists(review_dir / "sample_corrosion.json")
+    assert not os.path.exists(curated_dir / "sample_corrosion.json")
+    assert not os.path.exists(curated_dir / "sample_corrosion.jpg")
+    assert (review_dir / "sample_corrosion.json").exists()
+    assert (review_dir / "sample_corrosion.jpg").read_text() == "fake_binary_image"
+    with open(review_dir / "sample_corrosion.json", encoding="utf-8") as file:
+        assert json.load(file) == production_prediction
+
+
+def test_unpaired_curated_image_is_not_ignored(tmp_path):
+    curated_dir = tmp_path / "curated_data"
+    curated_dir.mkdir()
+    (curated_dir / "unreviewed.jpg").write_text("image")
+
+    with patch(
+        "src.data_automation.parse_curated_data_to_train.CURATED_DIR",
+        str(curated_dir),
+    ):
+        with pytest.raises(ValueError, match="Every curated image"):
+            main()
+
+
+def test_existing_training_sample_is_not_overwritten(tmp_path, monkeypatch):
+    curated_dir = tmp_path / "curated_data"
+    curated_dir.mkdir()
+    train_images = tmp_path / "data" / "images" / "train"
+    train_labels = tmp_path / "data" / "labels" / "train"
+    train_images.mkdir(parents=True)
+    train_labels.mkdir(parents=True)
+    (train_images / "sample.jpg").write_text("existing image")
+    (train_labels / "sample.txt").write_text("existing label")
+
+    annotation = {
+        "imagePath": "sample.jpg",
+        "imageWidth": 100,
+        "imageHeight": 100,
+        "shapes": [],
+    }
+    (curated_dir / "sample.json").write_text(json.dumps(annotation))
+    (curated_dir / "sample.jpg").write_text("new image")
+    monkeypatch.setenv("CORROSION_SKIP_AIRFLOW_TRIGGER", "1")
+
+    with patch(
+        "src.data_automation.parse_curated_data_to_train.CURATED_DIR",
+        str(curated_dir),
+    ), patch(
+        "src.data_automation.parse_curated_data_to_train.TRAIN_IMAGES_DIR",
+        str(train_images),
+    ), patch(
+        "src.data_automation.parse_curated_data_to_train.TRAIN_LABELS_DIR",
+        str(train_labels),
+    ), patch(
+        "src.data_automation.parse_curated_data_to_train.trigger_airflow_phase2"
+    ) as mock_trigger:
+        main()
+
+    mock_trigger.assert_not_called()
+    assert (train_images / "sample.jpg").read_text() == "existing image"
+    assert (train_labels / "sample.txt").read_text() == "existing label"
+    assert (train_images / "sample_curated_1.jpg").read_text() == "new image"
+    assert (train_labels / "sample_curated_1.txt").read_text() == ""
 
 
 @patch("subprocess.run")
@@ -108,3 +183,29 @@ def test_trigger_airflow_auto_selects_running_docker(mock_run, monkeypatch):
     assert mock_run.call_args_list[1].args[0][:5] == [
         "docker", "compose", "exec", "-T", "airflow-standalone",
     ]
+
+
+@patch("subprocess.run")
+def test_trigger_airflow_auto_falls_back_to_local_when_docker_unavailable(
+    mock_run, monkeypatch, capsys
+):
+    """Uses local Airflow if Docker Compose cannot be queried."""
+    mock_run.side_effect = [
+        subprocess.CalledProcessError(
+            1,
+            ["docker", "compose", "ps"],
+            stderr="Docker daemon is unavailable",
+        ),
+        MagicMock(stdout="triggered\n"),
+    ]
+    monkeypatch.setenv("CORROSION_AIRFLOW_TARGET", "auto")
+
+    trigger_airflow_phase2()
+
+    assert mock_run.call_count == 2
+    local_command = mock_run.call_args_list[1].args[0]
+    assert local_command[0].endswith("/airflow")
+    assert local_command[1:] == [
+        "dags", "trigger", "corrosion_phase2_retrain",
+    ]
+    assert "Falling back to local Airflow" in capsys.readouterr().out

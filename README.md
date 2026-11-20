@@ -164,11 +164,17 @@ environment above:
 airflow dags trigger corrosion_phase1_monitoring
 ```
 
-If drift is detected, the DAG creates pseudo-labels in `review_data/`. Review
-them with Labelme. Then run the curation script using the environment below.
-It converts reviewed annotations and triggers `corrosion_phase2_retrain` in the
-**local** Airflow instance. That DAG versions the dataset with DVC, trains and
-evaluates a model, and asks the local API to reload the champion.
+If drift is detected, the monitoring DAG saves production predictions in
+`review_data/`. This folder is the untouched source of model predictions.
+`./run_curation.sh` copies the predictions into `curated_data/` and opens that
+copy in Labelme, so human corrections never change `review_data/`. After
+Labelme closes, the script compares the corrected annotations with the scored
+prediction sidecars using COCOeval. It triggers `corrosion_phase2_retrain` only
+when **all** configured metrics are below `0.90`. If that gate is not met, it
+does not start the DAG but still converts every reviewed image and annotation
+in `curated_data/` into the training set. When the DAG is triggered, it performs
+that conversion, versions the dataset with DVC, trains and evaluates a model,
+and asks the local API to reload the champion.
 
 In a new terminal used to run `./run_curation.sh`, activate `.venv` and export
 the same settings so the script triggers this local Airflow instance:
@@ -274,14 +280,16 @@ standalone service logs:
 docker compose logs airflow-standalone 2>&1 | grep -iE 'username|password'
 ```
 
-The monitoring DAG runs observability and, if drift is detected, sends images
-to `review_data/` for curation. The `review_data/` directory is shared with the
-host through the `/app` bind mount.
+The monitoring DAG runs observability and, if drift is detected, stores
+production predictions in `review_data/`. The `review_data/` directory is
+shared with the host through the `/app` bind mount and remains unchanged by
+curation and training.
 
 For human review, run the curation script on the host with the local `.venv`.
-The script opens Labelme; after you save and close it, the script converts the
-annotations and automatically triggers Phase 2 in the running Docker Airflow
-service using `docker compose exec`:
+It copies predictions from `review_data/` to `curated_data/`, opens the latter
+in Labelme, and triggers Phase 2 after you save and close it. The DAG converts
+the corrected labels from `curated_data/` and automatically continues to
+versioning, training, and evaluation:
 
 ```bash
 source .venv/bin/activate
@@ -291,8 +299,8 @@ source .venv/bin/activate
 Keep the Compose stack running while using the script. It detects the active
 `airflow-standalone` service and triggers the containerized DAG; if no Compose
 Airflow service is running, it uses local Airflow instead. The containerized
-Phase 2 DAG performs annotation conversion, DVC versioning, training, model
-evaluation/governance, and the API reload in order.
+Phase 2 DAG performs curated annotation conversion, DVC versioning, training,
+model evaluation/governance, and the API reload in order.
 
 ### Configure Gmail email alerts
 

@@ -13,7 +13,7 @@ from dags.corrosion_phase2_retrain import (
 def test_find_project_root_when_dag_is_copied_to_airflow_home(tmp_path):
     project_root = tmp_path / "checkout"
     module_path = project_root / "src" / \
-        "data_automation" / "parse_review_to_train.py"
+        "data_automation" / "parse_curated_data_to_train.py"
     module_path.parent.mkdir(parents=True)
     module_path.touch()
 
@@ -56,3 +56,11 @@ def test_live_reload_is_gated_by_deployment_branch():
         "api_live_reload",
         "stop_before_live_reload",
     }
+
+
+def test_phase_two_converts_curated_data():
+    conversion_task = dag.get_task("merge_curated_data")
+
+    assert "src.data_automation.parse_curated_data_to_train" in (
+        conversion_task.bash_command)
+    assert conversion_task.env["CORROSION_SKIP_AIRFLOW_TRIGGER"] == "1"
