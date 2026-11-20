@@ -44,9 +44,10 @@ machine-specific credentials or paths.
 Run these commands from the repository root:
 
 ```bash
-uv sync --frozen
+uv sync
+```
+```bash
 source .venv/bin/activate
-python --version
 ```
 
 Set the project root and local MLflow database in **each terminal** used for
@@ -79,10 +80,9 @@ In Terminal 2, activate `.venv`, set the same local tracking URI, and run from
 the repository root:
 
 ```bash
-source .venv/bin/activate
-export CORROSION_PROJECT_ROOT="$PWD"
-export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
 dvc pull
+```
+```bash
 python -m src.model_train.yolo
 ```
 
@@ -104,9 +104,6 @@ After a model has been registered with the `champion` alias, start the API in a
 new terminal:
 
 ```bash
-source .venv/bin/activate
-export CORROSION_PROJECT_ROOT="$PWD"
-export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
 python src/serving/app.py
 ```
 
@@ -137,17 +134,15 @@ export CORROSION_PROJECT_ROOT="$PWD"
 export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
 export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
 export CORROSION_API_URL="http://127.0.0.1:8000"
+```
+
+```bash
 airflow db migrate
 ```
 
 In Terminal 3, start the local Airflow services:
 
 ```bash
-source .venv/bin/activate
-export CORROSION_PROJECT_ROOT="$PWD"
-export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
-export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
-export CORROSION_API_URL="http://127.0.0.1:8000"
 airflow standalone
 ```
 
@@ -156,13 +151,6 @@ instance. It uses `$HOME/airflow` by default. Use the credentials printed in
 its startup output to sign in at `http://127.0.0.1:8080`. In other terminals,
 activate `.venv` and export the project settings before triggering a local DAG;
 Airflow will use the same default home directory.
-
-Trigger the monitoring DAG from the Airflow UI or, in a terminal with the
-environment above:
-
-```bash
-airflow dags trigger corrosion_phase1_monitoring
-```
 
 If drift is detected, the monitoring DAG saves production predictions in
 `review_data/`. This folder is the untouched source of model predictions.
@@ -180,17 +168,12 @@ In a new terminal used to run `./run_curation.sh`, activate `.venv` and export
 the same settings so the script triggers this local Airflow instance:
 
 ```bash
-source .venv/bin/activate
-export CORROSION_PROJECT_ROOT="$PWD"
-export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
-export MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow.db"
-export CORROSION_API_URL="http://127.0.0.1:8000"
 ./run_curation.sh
 ```
 
 ---
 
-## Test CONTAINERIZADO — Docker Compose
+## Test — Docker Compose
 
 ### 1. Restore the dataset and start the services
 
@@ -235,76 +218,16 @@ the DVC remote is accessible from the container: a remote configured as a
 host-only filesystem path must also be mounted into the required services, or
 reconfigured to a location reachable from Docker.
 
-### 2. Run container commands directly (smoke test)
-
-These commands execute Python inside the Airflow container. They are useful for
-debugging, but running them directly does **not** create an Airflow DAG run:
-
-```bash
-# Start training and wait for successful completion.
-docker compose exec airflow-standalone \
-  python -m src.model_train.yolo
-
-# Run only after training has produced runs/detect/<run>/weights/best.pt.
-docker compose exec airflow-standalone \
-  python -m src.model_eval.yolo
-```
-
-The automated evaluation uses the test split for candidate quality gates and
-champion promotion; it does not use the validation split for promotion. The
-`--final-test` command below only records metrics and does not promote a model:
-
-```bash
-docker compose exec airflow-standalone \
-  python -m src.model_eval.yolo --final-test
-```
-
-Because the automated workflow already uses the test split for promotion,
-these metrics are not an independent final estimate. Use a separate untouched
-test split if an unbiased final estimate is required.
-
-### 3. Let Airflow orchestrate the containerized workflow
-
-Trigger the monitoring DAG from the Airflow UI or with the Airflow CLI inside
-the container:
-
-```bash
-docker compose exec airflow-standalone \
-  airflow dags trigger corrosion_phase1_monitoring
-```
-
-For a first Airflow login, retrieve the generated credentials from the
+#### For a first Airflow login, retrieve the generated credentials from the
 standalone service logs:
 
 ```bash
 docker compose logs airflow-standalone 2>&1 | grep -iE 'username|password'
 ```
 
-The monitoring DAG runs observability and, if drift is detected, stores
-production predictions in `review_data/`. The `review_data/` directory is
-shared with the host through the `/app` bind mount and remains unchanged by
-curation and training.
+#### Configure Gmail email alerts
 
-For human review, run the curation script on the host with the local `.venv`.
-It copies predictions from `review_data/` to `curated_data/`, opens the latter
-in Labelme, and triggers Phase 2 after you save and close it. The DAG converts
-the corrected labels from `curated_data/` and automatically continues to
-versioning, training, and evaluation:
-
-```bash
-source .venv/bin/activate
-./run_curation.sh
-```
-
-Keep the Compose stack running while using the script. It detects the active
-`airflow-standalone` service and triggers the containerized DAG; if no Compose
-Airflow service is running, it uses local Airflow instead. The containerized
-Phase 2 DAG performs curated annotation conversion, DVC versioning, training,
-model evaluation/governance, and the API reload in order.
-
-### Configure Gmail email alerts
-
-### Step 3.1: Configure SMTP Connection in Airflow UI (Anti-SSL & Sender Rule)
+##### Configure SMTP Connection in Airflow UI (Anti-SSL & Sender Rule)
 To ensure alert delivery via Gmail and bypass strict Airflow 3.0 `Email/SMTP` hooks that cause connection errors (`[SSL: WRONG_VERSION_NUMBER]`), you must define the connection explicitly using the **Generic** type.
 
 1. Open the Airflow Web Dashboard (`http://localhost:8080`).
@@ -328,25 +251,43 @@ To ensure alert delivery via Gmail and bypass strict Airflow 3.0 `Email/SMTP` ho
    *💡 Note: Merging security parameters with `from_email` inside a single JSON dictionary fulfills required server parameters and eliminates 'unset from_email' execution exceptions.*
 5. Click **Save**.
 
-### 4. Resource guidance
+### 2. Run container commands directly (smoke test)
 
-Do not stop Airflow while a DAG is running; doing so interrupts orchestration.
-The current training settings use `batch: 4` and `workers: 0`. If training runs
-out of memory, try `batch: 2`; lowering `imgsz` from `640` to `512` can also
-reduce GPU memory use, but compare evaluation metrics because it may affect
-accuracy. Stop `fastapi-serving` only when inference is not needed, and start it
-again before a DAG task that reloads the API.
-
-Stop the stack without deleting the persistent Airflow directory or MLflow
-volume:
+These commands execute Python inside the Airflow container. They are useful for
+debugging, but running them directly does **not** create an Airflow DAG run:
 
 ```bash
-docker compose stop
+# Start training and wait for successful completion.
+docker compose exec airflow-standalone \
+  python -m src.model_train.yolo
+
+# Run only after training has produced runs/detect/<run>/weights/best.pt.
+docker compose exec airflow-standalone \
+  python -m src.model_eval.yolo
 ```
 
-Resume it with `docker compose start`. `docker compose down -v` deletes the
-named `mlflow-data` volume; the Airflow data in `$HOME/airflow` is a host
-directory and is not removed by that command.
+
+The monitoring DAG runs observability and, if drift is detected, stores
+production predictions in `review_data/`. The `review_data/` directory is
+shared with the host through the `/app` bind mount and remains unchanged by
+curation and training.
+
+For human review, run the curation script on the host with the local `.venv`.
+It copies predictions from `review_data/` to `curated_data/`, opens the latter
+in Labelme, and triggers Phase 2 after you save and close it. The DAG converts
+the corrected labels from `curated_data/` and automatically continues to
+versioning, training, and evaluation:
+
+```bash
+source .venv/bin/activate
+./run_curation.sh
+```
+
+Keep the Compose stack running while using the script. It detects the active
+`airflow-standalone` service and triggers the containerized DAG; if no Compose
+Airflow service is running, it uses local Airflow instead. The containerized
+Phase 2 DAG performs curated annotation conversion, DVC versioning, training,
+model evaluation/governance, and the API reload in order.
 
 ---
 
