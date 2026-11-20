@@ -6,6 +6,7 @@ import pytest
 
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import (
+    INVALID_PARAMETER_VALUE,
     RESOURCE_ALREADY_EXISTS,
     RESOURCE_DOES_NOT_EXIST,
 )
@@ -53,10 +54,24 @@ def test_missing_champion_alias_is_the_only_lookup_error_treated_as_absent():
         client, "Corrosion_Detection_YOLO_Model") is None
 
     client.get_model_version_by_alias.side_effect = MlflowException(
+        "Registered model alias champion not found.",
+        error_code=INVALID_PARAMETER_VALUE,
+    )
+    assert yolo._get_champion_version(
+        client, "Corrosion_Detection_YOLO_Model") is None
+
+    client.get_model_version_by_alias.side_effect = MlflowException(
         "Registry unavailable",
         error_code="INTERNAL_ERROR",
     )
     with pytest.raises(MlflowException, match="Registry unavailable"):
+        yolo._get_champion_version(client, "Corrosion_Detection_YOLO_Model")
+
+    client.get_model_version_by_alias.side_effect = MlflowException(
+        "Registered model name not found.",
+        error_code=INVALID_PARAMETER_VALUE,
+    )
+    with pytest.raises(MlflowException, match="Registered model name not found"):
         yolo._get_champion_version(client, "Corrosion_Detection_YOLO_Model")
 
 

@@ -13,6 +13,7 @@ from mlflow.artifacts import download_artifacts
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import (
     ALREADY_EXISTS,
+    INVALID_PARAMETER_VALUE,
     RESOURCE_ALREADY_EXISTS,
     RESOURCE_DOES_NOT_EXIST,
     ErrorCode,
@@ -92,7 +93,19 @@ def _get_champion_version(client: MlflowClient, model_name: str) -> Any | None:
             RESOURCE_DOES_NOT_EXIST,
             ErrorCode.Name(RESOURCE_DOES_NOT_EXIST),
         }
-        if error.error_code not in missing_alias_codes:
+        missing_alias_message = "Registered model alias champion not found."
+        is_missing_champion_alias = (
+            error.error_code in missing_alias_codes
+            or (
+                error.error_code
+                in {
+                    INVALID_PARAMETER_VALUE,
+                    ErrorCode.Name(INVALID_PARAMETER_VALUE),
+                }
+                and error.message == missing_alias_message
+            )
+        )
+        if not is_missing_champion_alias:
             raise
         return None
 
@@ -390,18 +403,7 @@ def _run_governance_evaluation(model: YOLO, model_path: Path) -> bool:
         min_recall = float(business_config["MIN_RECALL"])
         challenger_map50 = logged_metrics["metrics_mAP50"]
         challenger_recall = logged_metrics["metrics_recall"]
-        mlflow.log_metrics({
-            "business_min_mAP50": min_map50,
-            "business_min_recall": min_recall,
-            "business_challenger_mAP50": challenger_map50,
-            "business_challenger_recall": challenger_recall,
-        })
-        mlflow.log_params({
-            "business_map50_threshold_met": str(
-                challenger_map50 >= min_map50).lower(),
-            "business_recall_threshold_met": str(
-                challenger_recall >= min_recall).lower(),
-        })
+
         if challenger_map50 < min_map50 or challenger_recall < min_recall:
             mlflow.set_tag("promotion_decision", "rejected_business_rules")
             print("Candidate rejected: business quality thresholds were not met.")

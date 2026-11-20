@@ -29,6 +29,7 @@ dependencies = [
     "sqlalchemy>=2.0.0,<2.1.0",
     "pytest",
     "apache-airflow-providers-fab>=1.5.3",
+    "onnxruntime>=1.28.0",
 ]
 
 # Configuração correta para o UV buscar o PyTorch CUDA 13.0
