@@ -6,8 +6,25 @@ import pytest
 
 from src.data_automation.curation_metrics import (
     CurationMetrics,
+    _select_prediction_run,
     evaluate_curation,
 )
+
+
+def test_select_prediction_run_uses_latest_manifest_timestamp(tmp_path):
+    predictions_dir = tmp_path / "production_predictions"
+    older_run = predictions_dir / "zzz"
+    newer_run = predictions_dir / "aaa"
+    older_run.mkdir(parents=True)
+    newer_run.mkdir()
+    (older_run / "run.json").write_text(json.dumps({
+        "run_id": "20261121T212949699809Z",
+    }))
+    (newer_run / "run.json").write_text(json.dumps({
+        "run_id": "20261121T214530449751Z",
+    }))
+
+    assert _select_prediction_run(predictions_dir) == newer_run
 
 
 def test_retraining_gate_requires_every_metric_below_threshold():

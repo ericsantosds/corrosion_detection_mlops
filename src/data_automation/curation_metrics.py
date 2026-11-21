@@ -2,6 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -93,12 +94,23 @@ def _select_prediction_run(predictions_dir, prediction_run_dir=None):
     manifests = sorted(predictions_dir.glob("*/run.json"))
     if not manifests:
         raise FileNotFoundError(f"No prediction runs found in {predictions_dir}.")
-    if len(manifests) != 1:
-        raise ValueError(
-            "Select a prediction run explicitly; "
-            f"found {len(manifests)} complete runs."
-        )
-    return manifests[0].parent
+    if len(manifests) == 1:
+        return manifests[0].parent
+
+    def run_timestamp(manifest_path):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            raise ValueError(f"Invalid prediction manifest: {manifest_path}")
+        try:
+            return datetime.strptime(
+                manifest["run_id"], "%Y%m%dT%H%M%S%fZ"
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"Invalid UTC timestamp in prediction manifest: {manifest_path}"
+            ) from error
+
+    return max(manifests, key=run_timestamp).parent
 
 
 def _sha256_file(path):
