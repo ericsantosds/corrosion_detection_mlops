@@ -2,6 +2,68 @@
 
 Corrosion detection with YOLO and an MLOps workflow orchestrated by Apache Airflow.
 
+## 🗂️ Organização do repositório
+
+```text
+📦 corrosion_detection_mlops/
+├── 📂 .github/
+│   └── 📂 workflows/
+│       └── 🧩 ci.yml
+├── 📂 .dvc/
+│   ├── ⚙️ config
+│   └── 🚫 .gitignore
+├── 📂 dags/
+│   ├── 🌊 corrosion_phase1_monitoring.py
+│   └── 🌊 corrosion_phase2_retrain.py
+├── 📂 helper/
+│   ├── 🐍 __init__.py
+│   └── 🐍 config.py
+├── 📂 notebooks/
+│   └── 📓 auditoria_producao_yolo_champion.ipynb
+├── 📂 src/
+│   ├── 📂 data_automation/
+│   │   ├── 🐍 curation_metrics.py
+│   │   ├── 🐍 merge_data.py
+│   │   ├── 🐍 parse_curated_data_to_train.py
+│   │   └── 🐍 send_to_review.py
+│   ├── 📂 model_eval/
+│   │   └── 🐍 yolo.py
+│   ├── 📂 model_train/
+│   │   └── 🐍 yolo.py
+│   ├── 📂 observability/
+│   │   └── 🐍 monitor.py
+│   └── 📂 serving/
+│       ├── 🚀 app.py
+│       └── 🎥 client_webcam.py
+├── 📂 test/
+│   ├── 🧪 test_config.py
+│   ├── 🧪 test_corrosion_phase2_dag.py
+│   ├── 🧪 test_curation_metrics.py
+│   ├── 🧪 test_merge_datasets.py
+│   ├── 🧪 test_model_eval.py
+│   ├── 🧪 test_parse_review_to_train.py
+│   ├── 🧪 test_phase1_dag_paths.py
+│   ├── 🧪 test_send_to_review.py
+│   └── 🧪 test_serving_app.py
+├── 📄 .dockerignore
+├── 📄 .dvcignore
+├── 📄 .gitignore
+├── 📄 Dockerfile
+├── 📄 LICENSE
+├── 🧾 business_args.yaml
+├── 🧾 data.dvc
+├── 🐳 docker-compose.yml
+├── 🧾 model_args.yaml
+├── 📦 pyproject.toml
+├── 📜 run_curation.sh
+└── 🔒 uv.lock
+```
+
+> 📌 Pastas locais geradas durante a execução — como `data/`, `.venv/`, `mlruns/`,
+> `runs/`, `online_data/`, `review_data/`, `curated_data/` e
+> `production_predictions/` — ficam fora do controle do Git por meio do
+> [`.gitignore`](.gitignore) ou são rastreadas pelo DVC.
+
 This guide describes two ways to reproduce the project:
 
 1. **Local test:** run Python commands from the activated `.venv`, without Docker.
@@ -42,6 +104,10 @@ machine-specific credentials or paths.
 ### 1. Create and activate the environment
 
 Run these commands from the repository root:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 ```bash
 uv sync
