@@ -102,7 +102,12 @@ def _get_champion_version(client: MlflowClient, model_name: str) -> Any | None:
                     INVALID_PARAMETER_VALUE,
                     ErrorCode.Name(INVALID_PARAMETER_VALUE),
                 }
-                and error.message == missing_alias_message
+                and error.message
+                in {
+                    missing_alias_message,
+                    f"{ErrorCode.Name(INVALID_PARAMETER_VALUE)}: "
+                    f"{missing_alias_message}",
+                }
             )
         )
         if not is_missing_champion_alias:

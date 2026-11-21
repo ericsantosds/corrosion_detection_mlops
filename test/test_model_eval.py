@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from mlflow.exceptions import MlflowException
+from mlflow.exceptions import MlflowException, RestException
 from mlflow.protos.databricks_pb2 import (
     INVALID_PARAMETER_VALUE,
     RESOURCE_ALREADY_EXISTS,
@@ -57,6 +57,13 @@ def test_missing_champion_alias_is_the_only_lookup_error_treated_as_absent():
         "Registered model alias champion not found.",
         error_code=INVALID_PARAMETER_VALUE,
     )
+    assert yolo._get_champion_version(
+        client, "Corrosion_Detection_YOLO_Model") is None
+
+    client.get_model_version_by_alias.side_effect = RestException({
+        "error_code": "INVALID_PARAMETER_VALUE",
+        "message": "Registered model alias champion not found.",
+    })
     assert yolo._get_champion_version(
         client, "Corrosion_Detection_YOLO_Model") is None
 
