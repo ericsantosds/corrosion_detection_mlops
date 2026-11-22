@@ -27,6 +27,7 @@ weights/
 review_data/
 curated_data/
 production_predictions/
+.dvc/
 
 
 # Distribution / packaging
