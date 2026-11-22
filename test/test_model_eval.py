@@ -82,23 +82,14 @@ def test_missing_champion_alias_is_the_only_lookup_error_treated_as_absent():
         yolo._get_champion_version(client, "Corrosion_Detection_YOLO_Model")
 
 
-@pytest.mark.parametrize(
-    ("evaluation_function", "expected_split"),
-    [
-        (yolo._evaluate_validation, "val"),
-        (yolo._evaluate_final_test, "test"),
-    ],
-)
-def test_evaluation_uses_the_requested_dataset_split(
-    evaluation_function, expected_split,
-):
+def test_evaluation_uses_test_split():
     model = Mock()
 
-    evaluation_function(model, "dataset.yaml")
+    yolo._evaluate_test(model, "dataset.yaml")
 
     model.val.assert_called_once_with(
         data="dataset.yaml",
-        split=expected_split,
+        split="test",
         workers=0,
     )
 
@@ -119,11 +110,16 @@ def test_existing_champion_is_rescored_on_test(monkeypatch):
             map=0.62,
         ))
     evaluate = Mock(return_value=test_metrics)
-    monkeypatch.setattr(yolo, "_evaluate_final_test", evaluate)
+    monkeypatch.setattr(yolo, "_evaluate_test", evaluate)
 
-    score = yolo._get_champion_test_map50(champion_version)
+    scores = yolo._get_champion_test_metrics(champion_version)
 
-    assert score == 0.82
+    assert scores == {
+        "metrics_precision": 0.76,
+        "metrics_recall": 0.72,
+        "metrics_mAP50": 0.82,
+        "metrics_mAP50_95": 0.62,
+    }
     evaluate.assert_called_once_with(champion_model, "dataset.yaml")
 
 
@@ -154,14 +150,21 @@ def test_challenger_not_better_keeps_current_champion(
         client,
         "Corrosion_Detection_YOLO_Model",
         candidate,
-        challenger_map50,
+        {
+            "metrics_precision": 0.8,
+            "metrics_recall": 0.8,
+            "metrics_mAP50": challenger_map50,
+            "metrics_mAP50_95": 0.7,
+        },
     )
 
     assert promoted is False
     client.set_registered_model_alias.assert_not_called()
 
 
-def test_challenger_that_beats_champion_is_promoted(monkeypatch):
+def test_challenger_that_beats_champion_is_promoted_with_only_four_metrics(
+    monkeypatch, capsys,
+):
     monkeypatch.setattr(yolo.mlflow, "set_tag", Mock())
     monkeypatch.setattr(yolo.mlflow, "log_param", Mock())
     monkeypatch.setattr(yolo.mlflow, "log_metrics", Mock())
@@ -185,7 +188,12 @@ def test_challenger_that_beats_champion_is_promoted(monkeypatch):
         client,
         "Corrosion_Detection_YOLO_Model",
         candidate,
-        0.81,
+        {
+            "metrics_precision": 0.8,
+            "metrics_recall": 0.81,
+            "metrics_mAP50": 0.81,
+            "metrics_mAP50_95": 0.61,
+        },
     )
 
     assert promoted is True
@@ -194,6 +202,23 @@ def test_challenger_that_beats_champion_is_promoted(monkeypatch):
         "champion",
         "2",
     )
+    logged = yolo.mlflow.log_metrics.call_args_list
+    assert len(logged) == 2
+    assert set(logged[0].args[0]) == {
+        "champion_precision",
+        "champion_recall",
+        "champion_mAP50",
+        "champion_mAP50_95",
+    }
+    assert set(logged[1].args[0]) == {
+        "challenger_precision",
+        "challenger_recall",
+        "challenger_mAP50",
+        "challenger_mAP50_95",
+    }
+    output = capsys.readouterr().out
+    assert "mAP50:95" in output
+    assert "delta" not in output.lower()
 
 
 def test_governance_evaluation_uses_test_metrics_for_promotion(
@@ -205,7 +230,6 @@ def test_governance_evaluation_uses_test_metrics_for_promotion(
     model = Mock()
     client = Mock()
     evaluate_test = Mock(return_value=object())
-    evaluate_validation = Mock()
     metrics = {
         "metrics_mAP50": 0.8,
         "metrics_recall": 0.75,
@@ -218,8 +242,7 @@ def test_governance_evaluation_uses_test_metrics_for_promotion(
     monkeypatch.setattr(yolo, "MlflowClient", lambda: client)
     monkeypatch.setattr(
         yolo, "project_dataset_yaml", lambda _: nullcontext("dataset.yaml"))
-    monkeypatch.setattr(yolo, "_evaluate_final_test", evaluate_test)
-    monkeypatch.setattr(yolo, "_evaluate_validation", evaluate_validation)
+    monkeypatch.setattr(yolo, "_evaluate_test", evaluate_test)
     monkeypatch.setattr(yolo, "_log_evaluation_metrics", lambda _: metrics)
     monkeypatch.setattr(yolo, "_register_model_version", lambda *args: candidate)
     monkeypatch.setattr(
@@ -235,11 +258,9 @@ def test_governance_evaluation_uses_test_metrics_for_promotion(
         model, tmp_path / "best.pt") is True
 
     evaluate_test.assert_called_once_with(model, "dataset.yaml")
-    evaluate_validation.assert_not_called()
     promote.assert_called_once_with(
         client,
         yolo.MODEL_NAME,
         candidate,
-        metrics["metrics_mAP50"],
-        challenger_metrics=metrics,
+        metrics,
     )
