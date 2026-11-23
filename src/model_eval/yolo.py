@@ -236,7 +236,10 @@ def main() -> None:
         "MLFLOW_TRACKING_URI", f"sqlite:///{PROJECT_ROOT / 'mlflow.db'}",
     )
     os.environ["MLFLOW_EXPERIMENT_NAME"] = EXPERIMENT_NAME
-    settings.update({"mlflow": True})
+    settings.update({
+        "mlflow": True,
+        "runs_dir": str(PROJECT_ROOT / "runs"),
+    })
 
     model_path = _get_latest_model_path()
     print(f"Loading model weights from: {model_path}")

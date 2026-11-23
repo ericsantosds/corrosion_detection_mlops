@@ -221,6 +221,25 @@ def test_challenger_that_beats_champion_is_promoted_with_only_four_metrics(
     assert "delta" not in output.lower()
 
 
+def test_main_resets_ultralytics_runs_directory(monkeypatch, tmp_path):
+    model_path = tmp_path / "runs" / "detect" / "train" / "weights" / "best.pt"
+    model = Mock()
+    settings_update = Mock()
+
+    monkeypatch.setattr(yolo, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(yolo, "_get_latest_model_path", lambda: model_path)
+    monkeypatch.setattr(yolo, "YOLO", lambda _: model)
+    monkeypatch.setattr(yolo, "_run_governance_evaluation", lambda *_: True)
+    monkeypatch.setattr(yolo.settings, "update", settings_update)
+
+    yolo.main()
+
+    settings_update.assert_called_once_with({
+        "mlflow": True,
+        "runs_dir": str(tmp_path / "runs"),
+    })
+
+
 def test_governance_evaluation_uses_test_metrics_for_promotion(
     monkeypatch, tmp_path,
 ):

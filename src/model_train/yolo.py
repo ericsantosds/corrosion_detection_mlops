@@ -26,8 +26,12 @@ def main():
     )
     os.environ["MLFLOW_EXPERIMENT_NAME"] = "Corrosion_Detection_YOLO"
 
-    # Forces the activation of the MLflow plugin in Ultralytics
-    settings.update({"mlflow": True})
+    # Keep Ultralytics output tied to this checkout instead of a machine-wide
+    # runs_dir configured on another copy of the project.
+    settings.update({
+        "mlflow": True,
+        "runs_dir": os.path.join(PROJECT_ROOT, "runs"),
+    })
 
     # 3. Dynamically locates your YAML configuration file at the root level
     config_yaml_path = os.path.join(PROJECT_ROOT, "model_args.yaml")
